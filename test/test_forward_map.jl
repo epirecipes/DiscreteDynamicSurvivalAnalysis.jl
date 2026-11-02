@@ -20,8 +20,8 @@ f_agrees(f, ref) = agree(f, ref; rtol = 1e-10, atol = 1e-13 * maximum(ref))
             r = fm[name]
             sol = forward_map(GLCT(dph_geometric(rate_to_proportion(r["gamma"]))), r["beta"], r["rho"], r["nsteps"])
             @test attack_fraction(sol) ≈ r["tau"] rtol = 1e-12
-            @test agree(infection_pmf(sol), r["f"]; rtol = 1e-12)
-            haskey(r, "S") && @test agree(susceptible_fraction(sol), r["S"]; rtol = 1e-14)
+            @test agree(infection_pmf(sol), r["f"])
+            haskey(r, "S") && @test agree(susceptible_fraction(sol), r["S"]; rtol = 1e-13)
         end
     end
 

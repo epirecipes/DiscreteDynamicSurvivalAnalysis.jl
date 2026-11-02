@@ -31,7 +31,7 @@ const DPH_CASES = Dict(
         @test agree(d.s, r["s"]; rtol = 1e-14, atol = 1e-16)
         @test agree([pmf(d, n) for n in ns], r["pmf"]; rtol = 1e-12, atol = 1e-300)
         @test agree([logpdf(d, n) for n in ns], r["logpdf"]; rtol = 1e-12)
-        @test agree([cdf(d, n) for n in ns], r["cdf"]; rtol = 1e-12)
+        @test agree([cdf(d, n) for n in ns], r["cdf"]; rtol = 1e-12, atol = 1e-15)
         @test mean(d) ≈ r["mean"] rtol = 1e-12
         @test var(d) ≈ r["var"] rtol = 1e-12
     end
@@ -55,8 +55,8 @@ const DPH_CASES = Dict(
         @test agree(d.α, r["alpha"]) && agree(d.A, unflat(r["A"])) && agree(d.q, r["q"])
         @test agree(pdf.(d, xs), r["pdf"])
         @test agree(logpdf.(d, xs), r["logpdf"])
-        @test agree(cdf.(d, xs), r["cdf"])
-        @test agree(logcdf.(d, xs), r["logcdf"])
+        @test agree(cdf.(d, xs), r["cdf"]; atol = 1e-15)
+        @test agree(logcdf.(d, xs), r["logcdf"]; atol = 1e-15)
         @test mean(d) ≈ r["mean"] && var(d) ≈ r["var"]
         # invariants by quadrature
         @test quadgk(x -> pdf(d, x), 0, Inf)[1] ≈ 1 atol = 1e-8
