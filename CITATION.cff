@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+message: "If you use this package, please cite the article below."
+type: software
+title: "DiscreteDynamicSurvivalAnalysis.jl"
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl"
+abstract: >-
+  Bayesian inference for epidemic models from case line lists, in discrete time. Discrete
+  dynamic survival analysis (DDSA) treats the infection and removal times of a line list as
+  survival data whose distributions come from a deterministic discrete-time epidemic model, and
+  samples the parameters with NUTS in Turing.jl.
+keywords:
+  - dynamic survival analysis
+  - epidemic modelling
+  - line lists
+  - Bayesian inference
+  - phase-type distributions
+  - Julia
+authors:
+  - family-names: Montes-Olivas
+    given-names: Sandra
+  - family-names: Frost
+    given-names: Simon D. W.
+preferred-citation:
+  type: article
+  title: "Discrete dynamic survival analysis of epidemic case line lists"
+  status: in-preparation
+  authors:
+    - family-names: Montes-Olivas
+      given-names: Sandra
+    - family-names: Abbott
+      given-names: Sam
+    - family-names: Gravenor
+      given-names: Michael B.
+    - family-names: Funk
+      given-names: Sebastian
+    - family-names: Frost
+      given-names: Simon D. W.
+references:
+  - type: software
+    title: "Discrete dynamic survival analysis of epidemic case line lists: code and analyses"
+    repository-code: "https://github.com/epirecipes/DDSA"
+    authors:
+      - family-names: Montes-Olivas
+        given-names: Sandra
+      - family-names: Frost
+        given-names: Simon D. W.

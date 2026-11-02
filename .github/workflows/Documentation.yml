@@ -1,0 +1,37 @@
+name: Documentation
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write
+      contents: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.11'
+      - uses: julia-actions/cache@v2
+      - name: Instantiate the docs environment
+        run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      # The manuscript vignettes are shown pre-rendered (docs/render_vignettes.jl); check that their code
+      # still runs, with the reduced settings. Their results are not published.
+      - name: Check the pre-rendered vignettes (reduced settings)
+        run: julia --project=docs --threads=auto docs/render_vignettes.jl --check
+        env:
+          GKSwstype: '100'
+      - name: Build and deploy
+        run: julia --project=docs docs/make.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GKSwstype: '100'

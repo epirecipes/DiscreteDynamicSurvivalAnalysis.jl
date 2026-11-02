@@ -1,0 +1,6 @@
+Manifest.toml
+docs/build/
+docs/Manifest.toml
+# generated in every docs build; the other vignette pages are pre-rendered and committed
+docs/src/vignettes/external_data.md
+

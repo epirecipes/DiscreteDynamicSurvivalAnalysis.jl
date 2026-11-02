@@ -1,0 +1,39 @@
+[data_availability]
+julia = "1.11.6"
+package_version = "0.1.0"
+rendered = "2026-11-02T22:46:48"
+seconds = 58.9
+source_sha256 = "011991955a67b5d9846a775dc00ce91945ceb7b383ff9f3b5047abb9bea2fd7a"
+threads = 10
+
+[ddsa_vs_ode]
+julia = "1.11.6"
+package_version = "0.1.0"
+rendered = "2026-11-02T22:48:57"
+seconds = 129.0
+source_sha256 = "32ceffe10cdaec6941ad3349557fc0420edd39778289a2429238d0a5b67d17e0"
+threads = 10
+
+[ebola_drc]
+julia = "1.11.6"
+package_version = "0.1.0"
+rendered = "2026-11-02T22:50:03"
+seconds = 47.5
+source_sha256 = "115eeb5985ea27591ff4c5bef70fe22bbe90a01194fd6b78e2cb2d6fd59f1407"
+threads = 10
+
+[h1n1_wsu]
+julia = "1.11.6"
+package_version = "0.1.0"
+rendered = "2026-11-02T22:49:16"
+seconds = 18.9
+source_sha256 = "7b8b0e53ec8096deddfbbeb9a27275cd36de78729ffebc44eb32e5df427d6632"
+threads = 10
+
+[measles_hagelloch]
+julia = "1.11.6"
+package_version = "0.1.0"
+rendered = "2026-11-02T22:56:46"
+seconds = 402.5
+source_sha256 = "212d599f775e8f3d4d9026ad9709ea63cf01cf5898262a2a7c82e13c19484f17"
+threads = 10
