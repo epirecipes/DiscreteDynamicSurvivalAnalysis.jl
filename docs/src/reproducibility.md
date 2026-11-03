@@ -77,10 +77,11 @@ decimals).
 
 ## Regression tests
 
-The regression fixtures come from the Quarto-notebook implementation of the analyses, at commit
-[`8ea70c9`](https://github.com/epirecipes/DDSA/commit/8ea70c9865a13fdaa4601d6cf40995656e987330) of
-[epirecipes/DDSA](https://github.com/epirecipes/DDSA). `test/reference/generate_reference.jl` ran
-that implementation and saved its outputs in `test/reference/*.toml`. The tests compare the
+The regression fixtures come from the Quarto-notebook implementation of the analyses, 
+archived as version 1.0.0 of [epirecipes/DDSA-manuscript](https://github.com/epirecipes/DDSA-manuscript) 
+([doi:10.5281/zenodo.23924833](https://doi.org/10.5281/zenodo.23924833)). 
+They were generated from commit [8ea70c9](https://github.com/epirecipes/DDSA-manuscript/commit/8ea70c9865a13fdaa4601d6cf40995656e987330). 
+`test/reference/generate_reference.jl` ran that implementation and saved its outputs in `test/reference/*.toml`. The tests compare the
 package against them:
 
 | Comparison | Largest relative difference |

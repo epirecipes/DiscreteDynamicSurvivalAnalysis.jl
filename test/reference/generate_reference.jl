@@ -1,5 +1,5 @@
 # Generates the regression fixtures in test/reference/*.toml by running the notebook implementation of the
-# manuscript analyses (commit 8ea70c9 of github.com/epirecipes/DDSA, formerly DiscreteDynamicSurvivalAnalysis_DDSA), which
+# manuscript analyses (commit 8ea70c9 of github.com/epirecipes/DDSA-manuscript, same analysis code as v1.0.0, doi:10.5281/zenodo.23924833), which
 # DDSA_ORIGINAL_REPO must point to a checkout of:
 # the notebook function definitions and data cells are extracted verbatim from the original .qmd sources
 # (by function name or by a unique anchor string) and evaluated together with the original
@@ -8,10 +8,10 @@
 # The original repository is only read (CSV files and sources); nothing is written there.
 #
 # Usage (from this package's root; Julia 1.11, single thread):
-#   DDSA_ORIGINAL_REPO=/path/to/DiscreteDynamicSurvivalAnalysis_DDSA \
+#   DDSA_ORIGINAL_REPO=/path/to/DDSA-manuscript \
 #       julia --project=$DDSA_ORIGINAL_REPO test/reference/generate_reference.jl [outdir]
 #
-# Fixtures were generated from commit 8ea70c9 of github.com/epirecipes/DDSA
+# Fixtures were generated from commit 8ea70c9 of github.com/epirecipes/DDSA-manuscript
 # (Julia 1.11.6, Turing 0.49.0, Distributions 0.25.131); a different commit only triggers a warning.
 
 using Turing, Distributions, Random, Statistics, LinearAlgebra, CSV, DataFrames, MCMCChains, TOML

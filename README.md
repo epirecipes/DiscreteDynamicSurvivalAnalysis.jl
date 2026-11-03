@@ -99,7 +99,7 @@ julia --project=docs --threads=10 docs/render_vignettes.jl [name ...]    # re-re
 | `src/simulate.jl` | `simulate_linelist`, `simulate_chain_binomial` |
 | `ext/` | plot recipes (loaded with Plots.jl/RecipesBase) |
 | `data/` | the manuscript's line lists ([provenance](data/README.md)) |
-| `test/` | tests; `test/reference/` holds fixtures from the notebook implementation of the analyses (epirecipes/DDSA, commit `8ea70c9`) |
+| `test/` | tests; `test/reference/` holds fixtures from the notebook implementation of the analyses |
 | `scripts/reproduce_manuscript.jl` | reruns the vignettes with the manuscript settings and compares with the published posteriors |
 | `docs/render_vignettes.jl` | renders the manuscript vignettes with the manuscript settings for the documentation |
 
@@ -110,10 +110,10 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
 The tests compare the package with fixtures from the notebook implementation of the analyses
-(commit `8ea70c9` of [epirecipes/DDSA](https://github.com/epirecipes/DDSA);
-`test/reference/generate_reference.jl`). They cover the phase-type distributions, forward maps,
-likelihoods and data preprocessing, with logjoint agreement to ≤ 4e-14 relative. The suite also
-includes a short end-to-end fit and Aqua.jl checks, and takes about 4 minutes.
+([archived on Zenodo](https://doi.org/10.5281/zenodo.23924833); `test/reference/generate_reference.jl`). 
+They cover the phase-type distributions, forward maps, likelihoods and data preprocessing, with logjoint 
+agreement to ≤ 4e-14 relative. The suite also includes a short end-to-end fit and Aqua.jl checks, 
+and takes about 4 minutes.
 
 To reproduce the manuscript's posterior tables with the full settings (about 15 minutes on 10
 threads):
@@ -125,9 +125,8 @@ julia --project=docs --threads=10 scripts/reproduce_manuscript.jl
 ## Citation
 
 The methods are described in *Discrete dynamic survival analysis of epidemic case line lists*
-(manuscript in preparation). The code used for the manuscript's analyses is archived
-in [epirecipes/DDSA](https://github.com/epirecipes/DDSA); the vignettes in `docs/src/vignettes/`
-reproduce those analyses with this package.
+(manuscript in preparation). The code used for the manuscript's analyses is [archived on Zenodo](https://doi.org/10.5281/zenodo.23924833).
+The vignettes in `docs/src/vignettes/` reproduce those analyses with this package.
 
 ## Data
 

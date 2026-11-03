@@ -37,12 +37,3 @@ preferred-citation:
       given-names: Sebastian
     - family-names: Frost
       given-names: Simon D. W.
-references:
-  - type: software
-    title: "Discrete dynamic survival analysis of epidemic case line lists: code and analyses"
-    repository-code: "https://github.com/epirecipes/DDSA"
-    authors:
-      - family-names: Montes-Olivas
-        given-names: Sandra
-      - family-names: Frost
-        given-names: Simon D. W.
