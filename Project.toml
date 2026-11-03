@@ -1,11 +1,11 @@
 name = "DiscreteDynamicSurvivalAnalysis"
 uuid = "4fe4a33c-7f64-4fb5-9872-eaaefb88660f"
-authors = ["Sandra Montes-Olivas <sandra.montes-olivas@lshtm.ac.uk>", "Simon Frost"]
 version = "0.1.0"
+authors = ["Sandra Montes-Olivas <sandra.montes-olivas@lshtm.ac.uk>", "Simon Frost"]
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
-Distributions ="31c24e10-a181-5473-b8eb-7969acd0382f"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -32,7 +32,7 @@ Distributions = "0.25"
 ForwardDiff = "1"
 LinearAlgebra = "1"
 Logging = "1"
-MCMCChains = "7"
+MCMCChains = "7, 8"
 MCMCDiagnosticTools = "0.3"
 QuadGK = "2"
 Random = "1"
