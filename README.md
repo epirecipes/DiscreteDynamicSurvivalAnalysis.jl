@@ -34,13 +34,11 @@ For the assumptions of DDSA and when it applies, see the manuscript.
 
 ## Installation
 
-Requires Julia ≥ 1.11. The package is not registered.
+Requires Julia ≥ 1.11. Install the package from GitHub:
 
 ```julia
 using Pkg
-Pkg.develop(path = "/path/to/DiscreteDynamicSurvivalAnalysis.jl")
-# once the package is on GitHub:
-# Pkg.add(url = "https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl")
+Pkg.add(url = "https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl")
 ```
 
 ## Quickstart
@@ -127,7 +125,7 @@ julia --project=docs --threads=10 scripts/reproduce_manuscript.jl
 ## Citation
 
 The methods are described in *Discrete dynamic survival analysis of epidemic case line lists*
-(manuscript in preparation; no DOI yet). The code used for the manuscript's analyses is archived
+(manuscript in preparation). The code used for the manuscript's analyses is archived
 in [epirecipes/DDSA](https://github.com/epirecipes/DDSA); the vignettes in `docs/src/vignettes/`
 reproduce those analyses with this package.
 

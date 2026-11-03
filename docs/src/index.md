@@ -61,14 +61,12 @@ vignettes reproduce the manuscript's analyses.
 
 ## Installation
 
-The package requires Julia ≥ 1.11. It is not registered (yet). It can be installed from a local copy as:
+The package requires Julia ≥ 1.11. Install it from GitHub:
 
 ```julia
 using Pkg
-Pkg.develop(path = "/path/to/DiscreteDynamicSurvivalAnalysis.jl")
+Pkg.add(url = "https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl")
 ```
-
-or, from GitHub, with `Pkg.add(url = "https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl")`.
 
 ## Quickstart
 
