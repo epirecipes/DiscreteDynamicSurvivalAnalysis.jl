@@ -33,7 +33,7 @@ threads = 10
 [measles_hagelloch]
 julia = "1.11.6"
 package_version = "0.1.0"
-rendered = "2026-11-02T22:56:46"
-seconds = 402.5
-source_sha256 = "212d599f775e8f3d4d9026ad9709ea63cf01cf5898262a2a7c82e13c19484f17"
+rendered = "2026-11-05T12:03:08"
+seconds = 581.9
+source_sha256 = "5edc4b099e5bb1bc75a7955b0b6037b5b7c850e90ab404183d82a973bbf504ab"
 threads = 10

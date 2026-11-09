@@ -5,7 +5,7 @@ EditURL = "measles_hagelloch.jl"
 # Measles in Hagelloch, 1861: a custom three-group model
 
 !!! note "Precomputed with the manuscript settings"
-    The output on this page was precomputed using the manuscript's MCMC settings and is
+    The output on this page was precomputed using the manuscript's MCMC settings, with a target acceptance rate of 0.95, and is
     displayed without being re-evaluated. To rerun it, see [Reproducibility](../reproducibility.md).
 
 This vignette reproduces the Hagelloch analysis of the manuscript. It is
@@ -33,6 +33,10 @@ right order of the three epidemics, and the group sizes ``N_0, N_1, N_2``. NR tr
 sizes as known; DDSA infers them from the final-size terms. The same model is fitted with the
 GLCT and the Boxcar forward maps, and their agreement checks the implementation.
 
+The last section goes beyond the manuscript's analysis. It replaces the serial negative binomial
+infectious period with a Coxian discrete phase-type distribution on the same GLCT map, which
+removes the bound on its number of stages.
+
 ````julia
 using DiscreteDynamicSurvivalAnalysis
 using CSV, DataFrames, Distributions, Turing, MCMCChains
@@ -41,16 +45,22 @@ using Plots, StatsPlots, Measures
 
 const FULL = get(ENV, "DDSA_FULL", "false") == "true"
 t_start = time()
+````
 
+All fits here use NUTS with a target acceptance rate of 0.95 rather than the manuscript's 0.8.
+At 0.8 the Coxian fit makes divergent transitions; smaller steps avoid them, and using them for
+every fit keeps the fits comparable.
+
+````julia
 const NDRAWS = FULL ? 2000 : 100          # draws per chain after adaptation
 const NCHAINS = FULL ? 4 : 2
-const SAMPLER = FULL ? default_sampler() : NUTS(100, 0.8; max_depth = 12, Δ_max = 1000.0)
+const SAMPLER = NUTS(FULL ? 1000 : 100, 0.95; max_depth = 12, Δ_max = 1000.0)
 const NPPC = FULL ? 200 : 100              # posterior draws used for the predictive checks
 (; FULL, NDRAWS, NCHAINS, SAMPLER, NPPC, threads = Threads.nthreads())
 ````
 
 ````
-(FULL = true, NDRAWS = 2000, NCHAINS = 4, SAMPLER = Turing.Inference.NUTS{ADTypes.AutoForwardDiff{nothing, Nothing}, AdvancedHMC.DiagEuclideanMetric}(1000, 0.8, 12, 1000.0, 0.0, ADTypes.AutoForwardDiff()), NPPC = 200, threads = 10)
+(FULL = true, NDRAWS = 2000, NCHAINS = 4, SAMPLER = Turing.Inference.NUTS{ADTypes.AutoForwardDiff{nothing, Nothing}, AdvancedHMC.DiagEuclideanMetric}(1000, 0.95, 12, 1000.0, 0.0, ADTypes.AutoForwardDiff()), NPPC = 200, threads = 10)
 ````
 
 ## Inputs
@@ -241,8 +251,9 @@ N_total = 197
 N0_max, N1_max, N2_max = N_total - K1 - K2, N_total - K0 - K2, N_total - K0 - K1
 N0_grid = NGrid(K0, K0, N0_max)
 N1_grid = NGrid(K1, K1, N1_max)
-cells = vec(collect(Iterators.product(1:r_max, K2:N2_max)))   # (r, N2) pairs
-(; N0 = K0:N0_max, N1 = K1:N1_max, N2 = K2:N2_max, ncells = length(cells))
+N2_values = K2:N2_max
+cells = vec(collect(Iterators.product(1:r_max, N2_values)))   # (r, N2) pairs
+(; N0 = K0:N0_max, N1 = K1:N1_max, N2 = N2_values, ncells = length(cells))
 ````
 
 ````
@@ -251,29 +262,28 @@ cells = vec(collect(Iterators.product(1:r_max, K2:N2_max)))   # (r, N2) pairs
 
 ### Likelihood of one (r, N2) cell
 
-For given transmission rates, mean infectious period and cell ``(r, N_2)``, the log-likelihood
-is the sum of:
+For given transmission rates, infectious-period DPH (here the one with ``r`` stages) and
+``N_2``, the log-likelihood is the sum of:
 
 - per group, the final-size and infection-time terms (`ddsa_loglikelihood` with
-  `group = g`), with ``N_0``, ``N_1`` summed out and ``N_2`` known in the cell;
-- once, the recovery term of the pooled intervals. It depends on ``r`` but not on ``N_2``, so
-  the model below computes it once per ``r`` and adds it to that ``r``'s cells;
-  `hagelloch_cell` returns the group terms only.
+  `group = g`), with ``N_0``, ``N_1`` summed out and ``N_2`` known in the cell. `group_terms`
+  computes them for any DPH and infection structure;
+- once, the recovery term of the pooled intervals. It depends on the DPH but not on ``N_2``, so
+  the model below computes it once per DPH and adds it to that DPH's cells.
 
 The manuscript's numerical guard clamps the attack fraction ``\tau_k`` of each group (its expected
-fraction infected) to ``[0.001, 0.999]``. `hagelloch_cell` also returns the guarded ``\tau_0`` and
+fraction infected) to ``[0.001, 0.999]``. `group_terms` also returns the guarded ``\tau_0`` and
 ``\tau_1``, which are used later to draw ``N_0`` and ``N_1``.
 
 ````julia
-hd = (; groups, delta, δ_floor, r_max, nsteps, N0_grid, N1_grid, cells,
+hd = (; groups, delta, δ_floor, r_max, nsteps, N0_grid, N1_grid, N2_values,
       guards = NumericalGuards(τ_bounds = (0.001, 0.999)))
 
 # infectious period with r stages and mean mean_δ: p = r / (E[δ] − δ_min + r)
 hagelloch_dph(hd, r, mean_δ) = dph_negative_binomial_min_support(r, r / (mean_δ - hd.δ_floor + r), hd.δ_floor)
 
-function hagelloch_cell(hd, make_structure, foi, r, N2, mean_δ)
-    dph = hagelloch_dph(hd, r, mean_δ)
-    sol = forward_map(make_structure(dph), foi, [0.0, 0.0, 1 / N2], hd.nsteps)
+function group_terms(hd, structure, dph, foi, N2)
+    sol = forward_map(structure, foi, [0.0, 0.0, 1 / N2], hd.nsteps)
     ll = zero(eltype(dph.s))
     τ = zeros(eltype(dph.s), 3)
     for (g, pop) in enumerate((hd.N0_grid, hd.N1_grid, N2))
@@ -287,38 +297,61 @@ end
 ````
 
 ````
-hagelloch_cell (generic function with 1 method)
+group_terms (generic function with 1 method)
+````
+
+### Infectious-period model
+
+The infectious period is a small Turing model of its own. It samples its parameters and returns
+one DPH for each value of its integer parameter, which is summed out together with ``N_2``. For
+the serial negative binomial, NUTS samples ``E[\delta]`` and the model returns the DPHs with
+``r = 1, \ldots, 4`` stages. Another law only needs another such model; the last section uses a
+Coxian DPH.
+
+````julia
+@model function serial_negbin(hd)
+    mean_δ ~ Uniform(hd.δ_floor + 0.5, 25.0)
+    return [hagelloch_dph(hd, r, mean_δ) for r in 1:hd.r_max]
+end
+````
+
+````
+serial_negbin (generic function with 2 methods)
 ````
 
 ### Turing model
 
-NUTS samples the four transmission rates and ``E[\delta]``. The 40 cells are summed out with
+NUTS samples the four transmission rates and the parameters of the infectious-period model
+`ip`, which enters as a submodel. The cells pair each DPH that `ip` returns with each value of
+``N_2`` (40 cells for the serial negative binomial). They are summed out with
 [`marginal_r_loglik`](@ref), evaluated as parallel tasks (`threaded = true`), with a uniform
-prior over the cells. The recovery term is computed once for each of the 4 values of ``r`` and
-shared by that ``r``'s 10 cells.
-The model returns the per-cell log-likelihoods, from which ``(r, N_2)`` is drawn after sampling.
-And `make_structure` turns the DPH into the infection structure of the map, GLCT or Boxcar.
+prior over the cells. The recovery term and the infection structure are computed once per DPH,
+and `make_structure` turns a DPH into the infection structure of the map, GLCT or Boxcar.
+The model returns the per-cell log-likelihoods, the DPHs and the cells, from which the integer
+parameters are drawn after sampling.
 
 ````julia
-@model function hagelloch_mtheta(hd, make_structure)
+@model function hagelloch_mtheta(hd, ip, make_structure)
     beta_C1 ~ Exponential(0.2)
     beta_C2 ~ Exponential(0.1)
     beta_H ~ Exponential(0.1)
     beta_G ~ Exponential(0.1)
-    mean_δ ~ Uniform(hd.δ_floor + 0.5, 25.0)
+    dphs ~ to_submodel(ip, false)                      # false: keep the submodel's parameter names
     foi = mtheta_foi(beta_C1, beta_C2, beta_H, beta_G)
-    rec = [recovery_loglik(hagelloch_dph(hd, r, mean_δ), hd.delta) for r in 1:hd.r_max]
-    logmarg, lps = marginal_r_loglik(hd.cells; threaded = true) do (r, N2)
-        hagelloch_cell(hd, make_structure, foi, r, N2, mean_δ).ll + rec[r]
+    rec = [recovery_loglik(d, hd.delta) for d in dphs]
+    structures = [make_structure(d) for d in dphs]
+    cells = vec(collect(Iterators.product(eachindex(dphs), hd.N2_values)))
+    logmarg, lps = marginal_r_loglik(cells; threaded = true) do (v, N2)
+        group_terms(hd, structures[v], dphs[v], foi, N2).ll + rec[v]
     end
     Turing.@addlogprob! logmarg
-    return lps
+    return (lps = lps, dphs = dphs, cells = cells)
 end
 
 glct_structure(dph) = GLCT(dph)
 boxcar_structure(dph) = Boxcar(dph, K_age)     # truncation = :absorb
-model_glct = hagelloch_mtheta(hd, glct_structure)
-model_boxcar = hagelloch_mtheta(hd, boxcar_structure)
+model_glct = hagelloch_mtheta(hd, serial_negbin(hd), glct_structure)
+model_boxcar = hagelloch_mtheta(hd, serial_negbin(hd), boxcar_structure)
 logjoint(model_glct, (beta_C1 = 0.1174, beta_C2 = 0.021, beta_H = 0.0124, beta_G = 0.0638, mean_δ = 8.3537))
 ````
 
@@ -329,15 +362,19 @@ logjoint(model_glct, (beta_C1 = 0.1174, beta_C2 = 0.021, beta_H = 0.0124, beta_G
 ## Fit
 
 The chains start from jittered data-based values, as in the manuscript: the transmission rates
-at their prior medians, ``E[\delta]`` at the mean recorded interval, each multiplied by
-``e^{0.1 z}`` with ``z \sim \mathcal{N}(0, 1)``.
+at their prior medians and the infectious-period parameters from the recorded intervals (for the
+serial negative binomial, ``E[\delta]`` at their mean), each multiplied by ``e^{0.1 z}`` with
+``z \sim \mathcal{N}(0, 1)``. `ip_init` gives the infectious-period part.
 
 ````julia
-function data_inits(rng, hd, n)
-    j() = exp(0.1 * randn(rng))
-    return [InitFromParams((beta_C1 = j() * median(Exponential(0.2)), beta_C2 = j() * median(Exponential(0.1)),
-                            beta_H = j() * median(Exponential(0.1)), beta_G = j() * median(Exponential(0.1)),
-                            mean_δ = clamp(j() * mean(hd.delta), minimum(hd.delta) + 0.6, 24.9)))
+jitter(rng) = exp(0.1 * randn(rng))
+serial_init(rng, hd) = (mean_δ = clamp(jitter(rng) * mean(hd.delta), minimum(hd.delta) + 0.6, 24.9),)
+
+function data_inits(rng, hd, n, ip_init)
+    return [InitFromParams(merge((beta_C1 = jitter(rng) * median(Exponential(0.2)),
+                                  beta_C2 = jitter(rng) * median(Exponential(0.1)),
+                                  beta_H = jitter(rng) * median(Exponential(0.1)),
+                                  beta_G = jitter(rng) * median(Exponential(0.1))), ip_init(rng, hd)))
             for _ in 1:n]
 end
 ````
@@ -348,41 +385,47 @@ data_inits (generic function with 1 method)
 
 After sampling, each draw gets integer values from their conditional posteriors.
 
-1. ``(r, N_2)`` is drawn over the cells from the returned per-cell log-likelihoods
+1. A cell (a DPH and ``N_2``) is drawn from the returned per-cell log-likelihoods
    ([`sample_index`](@ref)).
 2. The map of that cell is rerun to get the attack fractions of classes 0 and 1.
 3. ``N_0`` and ``N_1`` are drawn given those attack fractions ([`sample_N`](@ref)).
 
-The draws are added to the chain as `:r`, `:N0`, `:N1` and `:N2`.
+The draws are added to the chain as `:N0`, `:N1` and `:N2` and, when the infectious-period model
+returns several DPHs, the index of the drawn one under the name `variant` (here `:r`).
 
 ````julia
-function add_integer_draws(rng, hd, model, chain, make_structure)
-    lps = returned(model, chain)
-    niter, nch = size(lps)
-    pars = [Array(chain[s]) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G, :mean_δ)]
-    draws = zeros(Int, niter, 4, nch)
+function add_integer_draws(rng, hd, model, chain, make_structure; variant = :r)
+    rets = returned(model, chain)
+    niter, nch = size(rets)
+    betas = [Array(chain[s]) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G)]
+    names = variant === nothing ? [:N0, :N1, :N2] : [variant, :N0, :N1, :N2]
+    draws = zeros(Int, niter, length(names), nch)
     for c in 1:nch, i in 1:niter
-        r, N2 = hd.cells[sample_index(rng, lps[i, c])]
-        foi = mtheta_foi((pars[k][i, c] for k in 1:4)...)
-        cell = hagelloch_cell(hd, make_structure, foi, r, N2, pars[5][i, c])
-        draws[i, :, c] = [r, sample_N(rng, hd.N0_grid, cell.τ0), sample_N(rng, hd.N1_grid, cell.τ1), N2]
+        (; lps, dphs, cells) = rets[i, c]
+        v, N2 = cells[sample_index(rng, lps)]
+        foi = mtheta_foi((b[i, c] for b in betas)...)
+        cell = group_terms(hd, make_structure(dphs[v]), dphs[v], foi, N2)
+        Ns = [sample_N(rng, hd.N0_grid, cell.τ0), sample_N(rng, hd.N1_grid, cell.τ1), N2]
+        draws[i, :, c] = variant === nothing ? Ns : [v; Ns]
     end
-    return hcat(chain, MCMCChains.setrange(Chains(draws, [:r, :N0, :N1, :N2]), range(chain)))
+    return hcat(chain, MCMCChains.setrange(Chains(draws, names), range(chain)))
 end
 
-function fit_mtheta(rng, hd, model, make_structure)
+function fit_mtheta(rng, hd, model, make_structure, ip_init; variant = :r)
     chain = sample(rng, model, SAMPLER, MCMCThreads(), NDRAWS, NCHAINS; progress = false,
-                   chain_type = Chains, initial_params = data_inits(rng, hd, NCHAINS))
-    return add_integer_draws(rng, hd, model, chain, make_structure)
+                   chain_type = Chains, initial_params = data_inits(rng, hd, NCHAINS, ip_init))
+    return add_integer_draws(rng, hd, model, chain, make_structure; variant)
 end
 
-t_glct = @elapsed chain_glct = fit_mtheta(Xoshiro(20261006), hd, model_glct, glct_structure)
-t_boxcar = @elapsed chain_boxcar = fit_mtheta(Xoshiro(20261007), hd, model_boxcar, boxcar_structure)
-(seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1))
+t_glct = @elapsed chain_glct = fit_mtheta(Xoshiro(20261006), hd, model_glct, glct_structure, serial_init)
+t_boxcar = @elapsed chain_boxcar = fit_mtheta(Xoshiro(20261007), hd, model_boxcar, boxcar_structure, serial_init)
+divergences(chain) = Int(sum(Array(chain[:numerical_error])))
+(seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1),
+ divergent_transitions = (glct = divergences(chain_glct), boxcar = divergences(chain_boxcar)))
 ````
 
 ````
-(seconds_glct = 162.7, seconds_boxcar = 235.2)
+(seconds_glct = 189.9, seconds_boxcar = 270.8, divergent_transitions = (glct = 0, boxcar = 0))
 ````
 
 Convergence diagnostics (bulk/tail effective sample sizes and ``\hat R``) of the GLCT fit:
@@ -397,15 +440,15 @@ Summary Statistics
   parameters      mean       std      mcse    ess_bulk    ess_tail      rhat   ⋯
       Symbol   Float64   Float64   Float64     Float64     Float64   Float64   ⋯
 
-     beta_C1    0.1184    0.0365    0.0008   1870.4572   1870.2615    1.0023   ⋯
-     beta_C2    0.0267    0.0213    0.0005   1668.3432   1894.2249    1.0014   ⋯
-      beta_H    0.0165    0.0136    0.0003   1883.0118   1676.6820    1.0001   ⋯
-      beta_G    0.0623    0.0082    0.0002   1559.5878   1450.5193    1.0016   ⋯
-      mean_δ    8.3636    0.2262    0.0033   4735.0987   4715.7011    1.0005   ⋯
-           r    4.0000    0.0000       NaN         NaN         NaN       NaN   ⋯
-          N0   98.4214    0.8902    0.0103   7412.0280         NaN    1.0002   ⋯
-          N1   34.0680    2.1218    0.0258   6820.8673   7678.5674    1.0007   ⋯
-          N2   76.5657    0.7307    0.0081   8250.7217         NaN    0.9999   ⋯
+     beta_C1    0.1179    0.0379    0.0010   1473.7221   1509.2461    1.0020   ⋯
+     beta_C2    0.0266    0.0213    0.0005   1514.8559   1907.4623    1.0006   ⋯
+      beta_H    0.0167    0.0134    0.0003   1801.5528   2160.8512    1.0019   ⋯
+      beta_G    0.0624    0.0083    0.0002   1261.2182   1470.9380    1.0018   ⋯
+      mean_δ    8.3607    0.2245    0.0036   3843.1225   4136.7493    1.0004   ⋯
+           r    3.9996    0.0194    0.0002   8020.6465         NaN    0.9999   ⋯
+          N0   98.4190    0.8926    0.0105   7230.0248         NaN    1.0000   ⋯
+          N1   34.0812    2.1180    0.0273   6090.4181   6947.4388    1.0007   ⋯
+          N2   76.5683    0.7279    0.0081   8122.7750         NaN    0.9998   ⋯
 
                                                                 1 column omitted
 
@@ -423,15 +466,15 @@ Summary Statistics
   parameters      mean       std      mcse    ess_bulk    ess_tail      rhat   ⋯
       Symbol   Float64   Float64   Float64     Float64     Float64   Float64   ⋯
 
-     beta_C1    0.1174    0.0362    0.0008   2307.5442   2758.6953    1.0008   ⋯
-     beta_C2    0.0257    0.0207    0.0005   1982.7474   2523.5504    1.0012   ⋯
-      beta_H    0.0162    0.0132    0.0003   2115.0079   2668.0990    1.0008   ⋯
-      beta_G    0.0626    0.0080    0.0002   1762.2704   1655.2994    1.0010   ⋯
-      mean_δ    8.3603    0.2177    0.0035   3891.1394   4028.5727    1.0015   ⋯
+     beta_C1    0.1176    0.0374    0.0009   1953.6892   2092.9542    1.0014   ⋯
+     beta_C2    0.0261    0.0213    0.0005   1798.8936   2239.5107    1.0024   ⋯
+      beta_H    0.0166    0.0136    0.0003   1867.0391   2334.9041    1.0018   ⋯
+      beta_G    0.0625    0.0083    0.0002   1658.2121   1605.9197    1.0019   ⋯
+      mean_δ    8.3638    0.2263    0.0035   4188.0089   3413.8530    1.0006   ⋯
            r    4.0000    0.0000       NaN         NaN         NaN       NaN   ⋯
-          N0   98.4234    0.8889    0.0098   8076.3363         NaN    0.9998   ⋯
-          N1   34.1094    2.1317    0.0254   7118.7717   7711.6680    1.0002   ⋯
-          N2   76.5596    0.7498    0.0082   8495.1538         NaN    0.9997   ⋯
+          N0   98.4232    0.8889    0.0099   8020.6003         NaN    0.9997   ⋯
+          N1   34.1135    2.1509    0.0262   6887.4050   7257.9506    0.9999   ⋯
+          N2   76.5580    0.7496    0.0082   8367.9887         NaN    0.9998   ⋯
 
                                                                 1 column omitted
 
@@ -457,18 +500,42 @@ function compute_R0_mtheta(beta_C1, beta_C2, beta_H, beta_G, mean_ip, N0, N1, N2
 end
 
 pooled(chain, s) = vec(Array(chain[s]))     # chain 1 first, then chain 2, …
+````
 
-function posterior_quantities(chain, hd)
-    d = Dict{Symbol,Vector{Float64}}(s => pooled(chain, s) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G, :mean_δ,
-                                                                     :r, :N0, :N1, :N2))
-    d[:p] = d[:r] ./ (d[:mean_δ] .- hd.δ_floor .+ d[:r])
+````
+pooled (generic function with 1 method)
+````
+
+The infectious-period DPH of each draw is that of the infectious-period model at the draw's
+parameters, for the drawn `variant`. `posterior_quantities` collects the draws of the
+parameters, the mean ``E[\delta]``, the per-stage progression probability ``p`` (that of the
+last stage), the coefficient of variation ``\text{CV}_\delta`` of the infectious period and ``R_0``.
+
+````julia
+function posterior_dphs(chain, ip; variant = :r)
+    rets = returned(ip, chain)
+    pick(i, c) = variant === nothing ? 1 : Int(chain[variant][i, c])
+    return vec([rets[i, c][pick(i, c)] for i in axes(rets, 1), c in axes(rets, 2)])
+end
+
+dph_cv(d) = sqrt(var(d)) / mean(d)
+
+function posterior_quantities(chain, dphs)
+    d = Dict{Symbol,Vector{Float64}}(s => pooled(chain, s) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G,
+                                                                     :N0, :N1, :N2))
+    :r in names(chain) && (d[:r] = pooled(chain, :r))
+    d[:mean_δ] = mean.(dphs)
+    d[:p] = [1 - x.S[end, end] for x in dphs]
+    d[:cv_δ] = dph_cv.(dphs)
     d[:R0] = [compute_R0_mtheta(d[:beta_C1][i], d[:beta_C2][i], d[:beta_H][i], d[:beta_G][i], d[:mean_δ][i],
-                                d[:N0][i], d[:N1][i], d[:N2][i]) for i in eachindex(d[:r])]
+                                d[:N0][i], d[:N1][i], d[:N2][i]) for i in eachindex(dphs)]
     return d
 end
 
-post_glct = posterior_quantities(chain_glct, hd)
-post_boxcar = posterior_quantities(chain_boxcar, hd)
+dphs_glct = posterior_dphs(chain_glct, serial_negbin(hd))
+dphs_boxcar = posterior_dphs(chain_boxcar, serial_negbin(hd))
+post_glct = posterior_quantities(chain_glct, dphs_glct)
+post_boxcar = posterior_quantities(chain_boxcar, dphs_boxcar)
 ````
 
 ### Posterior table
@@ -488,7 +555,7 @@ DataFrame(parameter = String.(params), GLCT = [fmt(post_glct[s]) for s in params
 ````
 
 ```@raw html
-<div><div style = "float: left;"><span>11×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">parameter</th><th style = "text-align: left;">GLCT</th><th style = "text-align: left;">Boxcar</th><th style = "text-align: left;">manuscript_GLCT_median</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "Union{Missing, Real}" style = "text-align: left;">Real?</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">beta_C1</td><td style = "text-align: left;">0.119 [0.0445, 0.19]</td><td style = "text-align: left;">0.118 [0.0437, 0.188]</td><td style = "text-align: right;">0.1174</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">beta_C2</td><td style = "text-align: left;">0.022 [0.00102, 0.081]</td><td style = "text-align: left;">0.0207 [0.000813, 0.077]</td><td style = "text-align: right;">0.021</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">beta_H</td><td style = "text-align: left;">0.0133 [0.000613, 0.0507]</td><td style = "text-align: left;">0.0129 [0.000528, 0.0492]</td><td style = "text-align: right;">0.0124</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: left;">beta_G</td><td style = "text-align: left;">0.0634 [0.0427, 0.0754]</td><td style = "text-align: left;">0.0637 [0.0441, 0.0754]</td><td style = "text-align: right;">0.0638</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: left;">mean_δ</td><td style = "text-align: left;">8.36 [7.95, 8.83]</td><td style = "text-align: left;">8.35 [7.95, 8.8]</td><td style = "text-align: right;">8.3537</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: left;">p</td><td style = "text-align: left;">0.479 [0.453, 0.503]</td><td style = "text-align: left;">0.479 [0.454, 0.503]</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">7</td><td style = "text-align: left;">r</td><td style = "text-align: left;">4.0 [4.0, 4.0]</td><td style = "text-align: left;">4.0 [4.0, 4.0]</td><td style = "text-align: right;">4</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">8</td><td style = "text-align: left;">N0</td><td style = "text-align: left;">99.0 [96.0, 99.0]</td><td style = "text-align: left;">99.0 [96.0, 99.0]</td><td style = "text-align: right;">99</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">9</td><td style = "text-align: left;">N1</td><td style = "text-align: left;">34.0 [30.0, 39.0]</td><td style = "text-align: left;">34.0 [30.0, 39.0]</td><td style = "text-align: right;">34</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">10</td><td style = "text-align: left;">N2</td><td style = "text-align: left;">77.0 [75.0, 77.0]</td><td style = "text-align: left;">77.0 [75.0, 77.0]</td><td style = "text-align: right;">77</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">11</td><td style = "text-align: left;">R0</td><td style = "text-align: left;">2.17 [2.02, 2.38]</td><td style = "text-align: left;">2.17 [2.02, 2.37]</td><td style = "text-align: right;">2.167</td></tr></tbody></table></div>
+<div><div style = "float: left;"><span>11×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">parameter</th><th style = "text-align: left;">GLCT</th><th style = "text-align: left;">Boxcar</th><th style = "text-align: left;">manuscript_GLCT_median</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "Union{Missing, Real}" style = "text-align: left;">Real?</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">beta_C1</td><td style = "text-align: left;">0.119 [0.0373, 0.189]</td><td style = "text-align: left;">0.119 [0.0384, 0.189]</td><td style = "text-align: right;">0.1174</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">beta_C2</td><td style = "text-align: left;">0.0216 [0.000845, 0.0801]</td><td style = "text-align: left;">0.0209 [0.000845, 0.0794]</td><td style = "text-align: right;">0.021</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">beta_H</td><td style = "text-align: left;">0.0136 [0.00065, 0.0511]</td><td style = "text-align: left;">0.0133 [0.00054, 0.0509]</td><td style = "text-align: right;">0.0124</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: left;">beta_G</td><td style = "text-align: left;">0.0634 [0.0429, 0.0758]</td><td style = "text-align: left;">0.0636 [0.0431, 0.0758]</td><td style = "text-align: right;">0.0638</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: left;">mean_δ</td><td style = "text-align: left;">8.36 [7.93, 8.81]</td><td style = "text-align: left;">8.36 [7.93, 8.83]</td><td style = "text-align: right;">8.3537</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: left;">p</td><td style = "text-align: left;">0.479 [0.454, 0.504]</td><td style = "text-align: left;">0.479 [0.453, 0.504]</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">7</td><td style = "text-align: left;">r</td><td style = "text-align: left;">4.0 [4.0, 4.0]</td><td style = "text-align: left;">4.0 [4.0, 4.0]</td><td style = "text-align: right;">4</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">8</td><td style = "text-align: left;">N0</td><td style = "text-align: left;">99.0 [96.0, 99.0]</td><td style = "text-align: left;">99.0 [96.0, 99.0]</td><td style = "text-align: right;">99</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">9</td><td style = "text-align: left;">N1</td><td style = "text-align: left;">34.0 [31.0, 39.0]</td><td style = "text-align: left;">34.0 [30.0, 39.0]</td><td style = "text-align: right;">34</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">10</td><td style = "text-align: left;">N2</td><td style = "text-align: left;">77.0 [75.0, 77.0]</td><td style = "text-align: left;">77.0 [75.0, 77.0]</td><td style = "text-align: right;">77</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">11</td><td style = "text-align: left;">R0</td><td style = "text-align: left;">2.17 [2.02, 2.37]</td><td style = "text-align: left;">2.17 [2.02, 2.38]</td><td style = "text-align: right;">2.167</td></tr></tbody></table></div>
 ```
 
 Comparison with the structure of NR's ``M_\theta``: the younger class has the higher
@@ -503,7 +570,7 @@ absorbed by ``\beta_G``.
 ````
 
 ````
-(β_C1_over_β_C2 = 5.403481876599327, β_H_over_β_G = 0.20930751429152097, P_β_C1_gt_β_C2 = 0.996375)
+(β_C1_over_β_C2 = 5.506686246629514, β_H_over_β_G = 0.21411378567487618, P_β_C1_gt_β_C2 = 0.99175)
 ````
 
 Posterior distributions of the GLCT fit (integer parameters with one bin per value):
@@ -531,22 +598,21 @@ plot(posterior_panel(post_glct[:beta_C1]; title = "β_C1", color = :steelblue),
 ### Posterior predictive checks
 
 For `NPPC` draws evenly spaced over the pooled chains, the map is rerun at the draw's parameters
-(including its ``r`` and ``N_2``). The expected new infections per day of group ``k`` are
+(including its DPH and ``N_2``). The expected new infections per day of group ``k`` are
 ``N_k \tau_k f_k``, with ``N_k`` the draw's group size and ``f_k`` the group's infection-time
 distribution, so the curves show the model's own
 epidemic size. Each group's result is a [`PosteriorPredictive`](@ref), so the package's plot
 recipe and [`predictive_quantiles`](@ref) apply.
 
 ````julia
-function group_predictive(rng, hd, post, make_structure; ndraws)
-    idx = unique(round.(Int, range(1, length(post[:r]); length = ndraws)))
+function group_predictive(rng, hd, post, dphs, make_structure; ndraws)
+    idx = unique(round.(Int, range(1, length(dphs); length = ndraws)))
     inc = [zeros(hd.nsteps, length(idx)) for _ in 1:3]
     τ = zeros(length(idx), 3)
     final = zeros(Int, length(idx), 3)
     for (j, i) in enumerate(idx)
-        r = Int(post[:r][i])
         N = Int.((post[:N0][i], post[:N1][i], post[:N2][i]))
-        dph = hagelloch_dph(hd, r, post[:mean_δ][i])
+        dph = dphs[i]
         foi = mtheta_foi(post[:beta_C1][i], post[:beta_C2][i], post[:beta_H][i], post[:beta_G][i])
         sol = forward_map(make_structure(dph), foi, [0.0, 0.0, 1 / N[3]], hd.nsteps)
         for g in 1:3
@@ -561,8 +627,8 @@ function group_predictive(rng, hd, post, make_structure; ndraws)
     return (pps = pps, τ = τ, idx = idx)
 end
 
-ppc_glct = group_predictive(Xoshiro(1), hd, post_glct, glct_structure; ndraws = NPPC)
-ppc_boxcar = group_predictive(Xoshiro(2), hd, post_boxcar, boxcar_structure; ndraws = NPPC)
+ppc_glct = group_predictive(Xoshiro(1), hd, post_glct, dphs_glct, glct_structure; ndraws = NPPC)
+ppc_boxcar = group_predictive(Xoshiro(2), hd, post_boxcar, dphs_boxcar, boxcar_structure; ndraws = NPPC)
 ````
 
 Predicted ``\tau_k`` against the observed attack fractions ``K_k / N_k``, both per posterior
@@ -579,7 +645,7 @@ DataFrame(group = ["class 0", "class 1", "class 2"],
 ````
 
 ```@raw html
-<div><div style = "float: left;"><span>3×3 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">group</th><th style = "text-align: left;">predicted_τ</th><th style = "text-align: left;">observed_K_over_N</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">class 0</td><td style = "text-align: left;">0.768 [0.704, 0.816]</td><td style = "text-align: left;">0.909 [0.909, 0.938]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">class 1</td><td style = "text-align: left;">0.881 [0.833, 0.915]</td><td style = "text-align: left;">0.882 [0.789, 0.969]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">class 2</td><td style = "text-align: left;">0.747 [0.671, 0.805]</td><td style = "text-align: left;">0.883 [0.883, 0.907]</td></tr></tbody></table></div>
+<div><div style = "float: left;"><span>3×3 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">group</th><th style = "text-align: left;">predicted_τ</th><th style = "text-align: left;">observed_K_over_N</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">class 0</td><td style = "text-align: left;">0.769 [0.712, 0.831]</td><td style = "text-align: left;">0.909 [0.909, 0.938]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">class 1</td><td style = "text-align: left;">0.882 [0.813, 0.918]</td><td style = "text-align: left;">0.882 [0.789, 0.968]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">class 2</td><td style = "text-align: left;">0.753 [0.691, 0.8]</td><td style = "text-align: left;">0.883 [0.883, 0.919]</td></tr></tbody></table></div>
 ```
 
 The order of the epidemics: class 1 should peak before the main wave of class 2, and the
@@ -595,7 +661,7 @@ peaks = peak.(ppc_glct.pps)
 ````
 
 ````
-(mean_peak_day = [27.9, 26.0, 28.2], observed_peak_day = [35, 22, 32], P_class1_after_class2 = 0.04, P_class0_after_class1 = 1.0)
+(mean_peak_day = [27.9, 26.1, 28.2], observed_peak_day = [35, 22, 32], P_class1_after_class2 = 0.045, P_class0_after_class1 = 0.995)
 ````
 
 GLCT predictive checks (observed counts, posterior median and 95% band of the expected new
@@ -627,22 +693,237 @@ The posterior infectious-period distribution against the pooled recorded interva
 [`RecoveryPredictive`](@ref):
 
 ````julia
-function recovery_check(post, hd; ndraws, max_interval = maximum(hd.delta) + 3)
-    idx = unique(round.(Int, range(1, length(post[:r]); length = ndraws)))
+function recovery_check(dphs, hd; ndraws, max_interval = maximum(hd.delta) + 3)
+    idx = unique(round.(Int, range(1, length(dphs); length = ndraws)))
     P = zeros(max_interval, length(idx))
     for (j, i) in enumerate(idx)
-        r = Int(post[:r][i])
-        dph = hagelloch_dph(hd, r, post[:mean_δ][i])
-        P[:, j] .= [pdf(dph, x) for x in 1:max_interval]
+        P[:, j] .= [pdf(dphs[i], x) for x in 1:max_interval]
     end
     return RecoveryPredictive(1:max_interval, P, [count(==(x), hd.delta) for x in 1:max_interval])
 end
 
-rp = recovery_check(post_glct, hd; ndraws = NPPC)
+rp = recovery_check(dphs_glct, hd; ndraws = NPPC)
 plot(rp; xlabel = "infectious period (days)", size = (600, 320), color = :steelblue)
 ````
 
 ![](../assets/vignettes/measles_hagelloch-6.png)
+
+## A Coxian infectious period on the GLCT map
+
+### The stage bound of the serial infectious period
+
+The serial DPH passes through at most one stage per day, so ``r`` stages last at least ``r``
+days and ``r \le \delta_{\min} = 4``. The posterior of ``r`` sits at that bound, and the fitted
+infectious period is more variable than the 188 recorded intervals ``\delta`` (coefficients of
+variation, CV):
+
+````julia
+cv_recorded, mean_recorded = std(delta) / mean(delta), mean(delta)
+(P_r_at_bound = mean(post_glct[:r] .== r_max), recorded_cv = round(cv_recorded; digits = 3),
+ fitted_cv = qfmt(post_glct[:cv_δ]))
+````
+
+````
+(P_r_at_bound = 0.999625, recorded_cv = 0.219, fitted_cv = "0.361 [0.352, 0.369]")
+````
+
+A DPH with ``k`` stages and mean ``m > k`` has a squared CV of at least ``1/k - 1/m``, and the
+negative binomial attains it (Telek, 2000). With the mean of the recorded intervals, reaching
+their CV therefore needs at least this many stages, more than a serial chain can have here:
+
+````julia
+k_cox = ceil(Int, 1 / (cv_recorded^2 + 1 / mean_recorded))
+````
+
+````
+6
+````
+
+### A Coxian DPH
+
+In a Coxian DPH the stages are still passed in order, at most one per day, but an individual can
+leave after any of several stages. Here the chain has ``k = 6`` stages with a common per-day
+progression probability ``p``, and an individual leaves after stage ``j \in \{4, 5, 6\}`` with
+probability ``w_j`` (``w_4 + w_5 + w_6 = 1``). No one leaves before stage ``\delta_{\min}``,
+because no recorded interval is shorter. The infectious period is a mixture of negative binomials,
+
+```math
+P(\delta = n) = \sum_{j=4}^{6} w_j \binom{n-1}{j-1} p^j (1-p)^{n-j}, \qquad n \ge 4,
+```
+
+with mean ``\sum_j w_j\, j / p``. Its support starts at 4 days whatever the number of stages, so
+the shortest interval no longer bounds ``k``. With all the weight on ``j = 4`` it is the serial
+negative binomial with ``r = 4``.
+
+[`dph_coxian`](@ref)`(w, p; first_exit = 4)` builds it as a [`DPH`](@ref), which the GLCT map
+takes as it is. Its log pmf has the closed form above, which `logpdf`, and so
+[`recovery_loglik`](@ref), use; it agrees with the matrix form of the DPH:
+
+````julia
+dph_cox_demo = dph_coxian([0.05, 0.05, 0.9], 0.74; first_exit = δ_floor)
+(states = length(dph_cox_demo.α), mean = round(mean(dph_cox_demo); digits = 2),
+ cv = round(dph_cv(dph_cox_demo); digits = 3), recovery_loglik = recovery_loglik(dph_cox_demo, delta),
+ from_matrix_pmf = sum(log(pdf(dph_cox_demo, x)) for x in delta))
+````
+
+````
+(states = 6, mean = 7.91, cv = 0.226, recovery_loglik = -357.8327823416124, from_matrix_pmf = -357.83278234161247)
+````
+
+### Model and fit
+
+Only the infectious-period model changes. NUTS samples ``p`` (uniform prior) and the exit
+weights ``(w_4, w_5, w_6)`` (uniform Dirichlet prior), and the model returns the single Coxian
+DPH, so the cells are the 10 values of ``N_2``. The chains start from equal exit weights and
+``p`` from the mean recorded interval. The Turing model, the fit and the posterior summaries are
+the ones above; with no integer parameter of its own, the Coxian has no `variant`.
+
+````julia
+@model function coxian_ip(hd, k)
+    p ~ Beta(1, 1)
+    w ~ Dirichlet(ones(k - hd.δ_floor + 1))
+    return [dph_coxian(w, p; first_exit = hd.δ_floor)]
+end
+
+coxian_init(rng, hd, k) = (p = clamp(jitter(rng) * (hd.δ_floor + k) / 2 / mean(hd.delta), 0.05, 0.95),
+                           w = fill(1 / (k - hd.δ_floor + 1), k - hd.δ_floor + 1))
+
+ip_cox = coxian_ip(hd, k_cox)
+model_coxian = hagelloch_mtheta(hd, ip_cox, glct_structure)
+t_coxian = @elapsed chain_coxian = fit_mtheta(Xoshiro(20261008), hd, model_coxian, glct_structure,
+                                              (rng, hd) -> coxian_init(rng, hd, k_cox); variant = nothing)
+(seconds_coxian = round(t_coxian; digits = 1), divergent_transitions = divergences(chain_coxian))
+````
+
+````
+(seconds_coxian = 100.3, divergent_transitions = 0)
+````
+
+````julia
+summarystats(chain_coxian)
+````
+
+````
+Summary Statistics
+
+  parameters      mean       std      mcse    ess_bulk    ess_tail      rhat   ⋯
+      Symbol   Float64   Float64   Float64     Float64     Float64   Float64   ⋯
+
+     beta_C1    0.1056    0.0366    0.0008   2292.6817   2028.4444    1.0015   ⋯
+     beta_C2    0.0247    0.0202    0.0004   2372.9238   2479.8848    1.0018   ⋯
+      beta_H    0.0171    0.0139    0.0003   2592.8906   2392.8246    1.0005   ⋯
+      beta_G    0.0628    0.0081    0.0002   2077.1431   2677.8200    1.0015   ⋯
+           p    0.7193    0.0134    0.0002   4565.4154   5168.9435    0.9999   ⋯
+        w[1]    0.0435    0.0216    0.0003   4122.2473   3811.4403    1.0024   ⋯
+        w[2]    0.0766    0.0553    0.0008   3418.7260   2382.4681    1.0019   ⋯
+        w[3]    0.8799    0.0524    0.0007   5280.8930   4711.9962    1.0006   ⋯
+          N0   98.4796    0.8202    0.0092   8065.6269         NaN    0.9998   ⋯
+          N1   34.8687    2.1685    0.0247   7726.6504         NaN    1.0001   ⋯
+          N2   76.6164    0.6816    0.0077   7942.1008         NaN    0.9999   ⋯
+
+                                                                1 column omitted
+
+````
+
+### Results
+
+Posterior medians and 95% credible intervals of the Coxian fit beside the serial GLCT fit. ``R_0``
+uses the same next-generation matrix with the Coxian mean.
+
+````julia
+dphs_cox = posterior_dphs(chain_coxian, ip_cox; variant = nothing)
+post_cox = posterior_quantities(chain_coxian, dphs_cox)
+cox_params = [:beta_C1, :beta_C2, :beta_H, :beta_G, :mean_δ, :cv_δ, :N0, :N1, :N2, :R0]
+DataFrame(parameter = String.(cox_params), serial_GLCT = [fmt(post_glct[s]) for s in cox_params],
+          Coxian_GLCT = [fmt(post_cox[s]) for s in cox_params])
+````
+
+```@raw html
+<div><div style = "float: left;"><span>10×3 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">parameter</th><th style = "text-align: left;">serial_GLCT</th><th style = "text-align: left;">Coxian_GLCT</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">beta_C1</td><td style = "text-align: left;">0.119 [0.0373, 0.189]</td><td style = "text-align: left;">0.107 [0.0317, 0.176]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">beta_C2</td><td style = "text-align: left;">0.0216 [0.000845, 0.0801]</td><td style = "text-align: left;">0.0198 [0.000977, 0.0763]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">beta_H</td><td style = "text-align: left;">0.0136 [0.00065, 0.0511]</td><td style = "text-align: left;">0.0136 [0.000591, 0.0519]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: left;">beta_G</td><td style = "text-align: left;">0.0634 [0.0429, 0.0758]</td><td style = "text-align: left;">0.0639 [0.0434, 0.0754]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: left;">mean_δ</td><td style = "text-align: left;">8.36 [7.93, 8.81]</td><td style = "text-align: left;">8.11 [7.85, 8.39]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: left;">cv_δ</td><td style = "text-align: left;">0.361 [0.352, 0.369]</td><td style = "text-align: left;">0.233 [0.219, 0.252]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">7</td><td style = "text-align: left;">N0</td><td style = "text-align: left;">99.0 [96.0, 99.0]</td><td style = "text-align: left;">99.0 [96.0, 99.0]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">8</td><td style = "text-align: left;">N1</td><td style = "text-align: left;">34.0 [31.0, 39.0]</td><td style = "text-align: left;">35.0 [31.0, 39.0]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">9</td><td style = "text-align: left;">N2</td><td style = "text-align: left;">77.0 [75.0, 77.0]</td><td style = "text-align: left;">77.0 [75.0, 77.0]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">10</td><td style = "text-align: left;">R0</td><td style = "text-align: left;">2.17 [2.02, 2.37]</td><td style = "text-align: left;">2.06 [1.94, 2.22]</td></tr></tbody></table></div>
+```
+
+The Coxian's own parameters:
+
+````julia
+exit_stages = δ_floor:k_cox
+DataFrame(parameter = ["p"; ["w_$j" for j in exit_stages]],
+          posterior = [fmt(post_cox[:p]); [fmt(pooled(chain_coxian, Symbol("w[$i]"))) for i in eachindex(exit_stages)]])
+````
+
+```@raw html
+<div><div style = "float: left;"><span>4×2 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">parameter</th><th style = "text-align: left;">posterior</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">p</td><td style = "text-align: left;">0.72 [0.692, 0.745]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">w_4</td><td style = "text-align: left;">0.0405 [0.0106, 0.0943]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">w_5</td><td style = "text-align: left;">0.0671 [0.00336, 0.211]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: left;">w_6</td><td style = "text-align: left;">0.889 [0.753, 0.954]</td></tr></tbody></table></div>
+```
+
+The recovery term at the posterior draws of each fit:
+
+````julia
+(serial = qfmt(recovery_loglik.(dphs_glct, Ref(delta))), coxian = qfmt(recovery_loglik.(dphs_cox, Ref(delta))))
+````
+
+````
+(serial = "-398.65 [-404.15, -396.85]", coxian = "-359.48 [-364.495, -357.849]")
+````
+
+The recorded intervals against the posterior infectious period of each fit:
+
+````julia
+rp_cox = recovery_check(dphs_cox, hd; ndraws = NPPC)
+plot(plot(rp; title = "serial negative binomial", color = :steelblue, xlabel = "infectious period (days)"),
+     plot(rp_cox; title = "Coxian, k = $k_cox", color = :darkorange, xlabel = "infectious period (days)");
+     layout = (1, 2), size = (1050, 320), link = :y, left_margin = 4mm, bottom_margin = 4mm)
+````
+
+![](../assets/vignettes/measles_hagelloch-7.png)
+
+The predicted attack fractions of the two fits, and the Coxian fit's predictive checks:
+
+````julia
+ppc_cox = group_predictive(Xoshiro(3), hd, post_cox, dphs_cox, glct_structure; ndraws = NPPC)
+DataFrame(group = ["class 0", "class 1", "class 2"],
+          predicted_τ_serial = [qfmt(ppc_glct.τ[:, g]) for g in 1:3],
+          predicted_τ_Coxian = [qfmt(ppc_cox.τ[:, g]) for g in 1:3],
+          observed_K_over_N = [qfmt(K ./ post_cox[N][ppc_cox.idx]) for (K, N) in zip((K0, K1, K2), (:N0, :N1, :N2))])
+````
+
+```@raw html
+<div><div style = "float: left;"><span>3×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">group</th><th style = "text-align: left;">predicted_τ_serial</th><th style = "text-align: left;">predicted_τ_Coxian</th><th style = "text-align: left;">observed_K_over_N</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">class 0</td><td style = "text-align: left;">0.769 [0.712, 0.831]</td><td style = "text-align: left;">0.756 [0.697, 0.809]</td><td style = "text-align: left;">0.909 [0.909, 0.938]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">class 1</td><td style = "text-align: left;">0.882 [0.813, 0.918]</td><td style = "text-align: left;">0.856 [0.808, 0.892]</td><td style = "text-align: left;">0.857 [0.789, 0.968]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">class 2</td><td style = "text-align: left;">0.753 [0.691, 0.8]</td><td style = "text-align: left;">0.736 [0.671, 0.776]</td><td style = "text-align: left;">0.883 [0.883, 0.919]</td></tr></tbody></table></div>
+```
+
+````julia
+ppc_plot(ppc_cox, "Coxian GLCT")
+````
+
+![](../assets/vignettes/measles_hagelloch-8.png)
+
+The Coxian infectious period has the same spread as the 188 recorded intervals ``\delta``: its
+coefficient of variation is 0.23, against 0.22 for the recorded intervals and 0.36 for the serial
+fit. It raises the recovery log-likelihood by about 39, and its mean (8.11 days) is closer to the
+mean recorded interval (7.95 days) than the serial fit's (8.36 days). ``R_0`` is about 5% lower
+(2.06 against 2.17), with overlapping intervals. The transmission
+rates and group sizes change little, and the attack fractions of classes 0 and 2 are still
+under-predicted: that misfit comes from the mean-field contact structure, not from the
+infectious period.
+
+### The same law on the Boxcar map
+
+The Coxian DPH also goes into the Boxcar map, through its age-specific hazard. At the posterior
+medians both maps give the same epidemic, up to the probability of an infectious period longer
+than the ``K_\text{age}`` tracked ages. The GLCT map tracks 6 stages, the Boxcar map 40 ages:
+
+````julia
+w_med = [median(pooled(chain_coxian, Symbol("w[$i]"))) for i in eachindex(exit_stages)]
+dph_cox_med = dph_coxian(w_med ./ sum(w_med), median(post_cox[:p]); first_exit = δ_floor)
+foi_med = mtheta_foi((median(post_cox[s]) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G))...)
+ρ_med = [0.0, 0.0, 1 / round(Int, median(post_cox[:N2]))]
+sol_cox_glct = forward_map(GLCT(dph_cox_med), foi_med, ρ_med, nsteps)
+sol_cox_boxcar = forward_map(Boxcar(dph_cox_med, K_age), foi_med, ρ_med, nsteps)
+(glct_states = length(dph_cox_med.α), boxcar_ages = K_age, P_beyond_K_age = ccdf(dph_cox_med, K_age),
+ max_abs_diff_S = maximum(abs.(sol_cox_glct.S .- sol_cox_boxcar.S)))
+````
+
+````
+(glct_states = 6, boxcar_ages = 40, P_beyond_K_age = 5.684082258058816e-15, max_abs_diff_S = 7.771561172376096e-16)
+````
 
 ## Substituting your own data or model
 
@@ -659,19 +940,24 @@ plot(rp; xlabel = "infectious period (days)", size = (600, 320), color = :steelb
   [`NGrid`](@ref) (any prior through its `logprior` keyword). A known size is passed as an
   integer.
 - **Infectious period.** Any [`DPH`](@ref) works with `GLCT`, and `Boxcar(dph, K_age)` gives the
-  infection-age map. Integer parameters of the DPH go into the cells.
+  infection-age map. Write the law as an infectious-period model like `serial_negbin` or
+  `coxian_ip`: it samples the continuous parameters and returns one DPH per value of its integer
+  parameters, which go into the cells. `hagelloch_mtheta`, `fit_mtheta` and the posterior
+  functions take it unchanged; give `fit_mtheta` a matching `ip_init`, and a `variant` name when
+  it returns several DPHs.
 - **Guards and terms.** `ddsa_loglikelihood(...; guards, terms)` selects the numerical guards
   and the likelihood terms of each group.
 
 ## Runtime
 
 ````julia
-(mode = FULL ? "full (manuscript settings)" : "reduced (code check, not for results)",
+(mode = FULL ? "full (manuscript settings, target acceptance 0.95)" : "reduced (code check, not for results)",
  threads = Threads.nthreads(), seconds_total = round(time() - t_start; digits = 1),
- seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1))
+ seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1),
+ seconds_coxian = round(t_coxian; digits = 1))
 ````
 
 ````
-(mode = "full (manuscript settings)", threads = 10, seconds_total = 402.4, seconds_glct = 162.7, seconds_boxcar = 235.2)
+(mode = "full (manuscript settings, target acceptance 0.95)", threads = 10, seconds_total = 577.1, seconds_glct = 189.9, seconds_boxcar = 270.8, seconds_coxian = 100.3)
 ````
 

@@ -99,6 +99,7 @@ dph_geometric
 dph_negative_binomial
 dph_negative_binomial_min_support
 dph_prepend_deterministic_delay
+dph_coxian
 dph_erlang
 dph_erlang_from_mean
 dph_erlang_from_rates

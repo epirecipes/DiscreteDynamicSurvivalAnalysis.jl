@@ -235,6 +235,70 @@ const DPH_CASES = Dict(
         @test ForwardDiff.derivative(rr -> mean(dph_negative_binomial_min_support(rr, 0.5, 5)), 3.2) == 0
     end
 
+    @testset "Coxian DPH (dph_coxian)" begin
+        w, p = [0.1, 0.2, 0.7], 0.6
+        d = dph_coxian(w, p; first_exit = 2)
+        @test d.α == [1.0, 0.0, 0.0, 0.0] && size(d.S) == (4, 4)
+        mix(n) = sum(w[i] * pmf(dph_negative_binomial(j, p), n) for (i, j) in enumerate(2:4))
+        @test all(n -> isapprox(pmf(d, n), mix(n); rtol = 1e-10), 1:60)
+        @test mean(d) ≈ sum(w .* (2:4)) / p
+        @test sum(pmf(d, n) for n in 1:500) ≈ 1
+        # logpdf takes the closed form of the mixture: exact, with no floor in the far tail
+        @test PTD._shifted_negbin_structure(d) === nothing
+        cx = PTD._coxian_structure(d)
+        @test cx !== nothing && cx[1] ≈ p && cx[2] ≈ [0.0; w]
+        @test logpdf(d, 1) == -Inf && logpdf(d, 0) == -Inf
+        @test all(n -> isapprox(logpdf(d, n), log(mix(n)); rtol = 1e-12), 2:80)
+        @test logpdf(d, 150) < log(1e-12) && isapprox(logpdf(d, 150), log(mix(150)); rtol = 1e-10)
+        @test DiscreteDynamicSurvivalAnalysis.recovery_loglik(d, [2, 3, 5, 9], [false, true, false, true]) ≈
+              logpdf(d, 2) + log(ccdf(d, 3)) + logpdf(d, 5) + log(ccdf(d, 9))
+        # special cases: all the weight on the last stage is the serial negative binomial
+        @test pmf.(dph_coxian([0.0, 0.0, 1.0], 0.4), 1:30) ≈ pmf.(dph_negative_binomial(3, 0.4), 1:30)
+        @test pmf.(dph_coxian([1.0], 0.3; first_exit = 3), 1:30) ≈ pmf.(dph_negative_binomial(3, 0.3), 1:30)
+        @test pmf(dph_coxian([0.5, 0.5], 1.0), 1) ≈ 0.5 && pmf(dph_coxian([0.5, 0.5], 1.0), 2) ≈ 0.5
+        # a negligible exit weight keeps the rows of S sub-stochastic
+        dt = dph_coxian([1e-20, 1 - 1e-20], 0.5; first_exit = 2)
+        @test all(dt.s .>= 0) && sum(pmf(dt, n) for n in 1:500) ≈ 1
+        # derivatives of the closed form, against central differences
+        f(x) = sum(logpdf(dph_coxian([x[1], x[2], 1 - x[1] - x[2]], x[3]; first_exit = 2), n) for n in (2, 3, 5, 8))
+        x0, h = [0.1, 0.2, 0.6], 1e-6
+        fd = [(f(x0 .+ h .* (1:3 .== i)) - f(x0 .- h .* (1:3 .== i))) / 2h for i in 1:3]
+        @test ForwardDiff.gradient(f, x0) ≈ fd rtol = 1e-6
+        # input checks
+        @test_throws ArgumentError dph_coxian(Float64[], 0.5)
+        @test_throws ArgumentError dph_coxian([0.5, 0.6], 0.5)
+        @test_throws ArgumentError dph_coxian([-0.1, 1.1], 0.5)
+        @test_throws ArgumentError dph_coxian([1.0], 0.0)
+        @test_throws ArgumentError dph_coxian([1.0], 1.5)
+        @test_throws ArgumentError dph_coxian([1.0], 0.5; first_exit = 0)
+        # other DPHs are not taken for common-p Coxians
+        @test PTD._coxian_structure(DPH([0.5, 0.5], [0.2 0.3; 0.1 0.6])) === nothing
+        @test PTD._coxian_structure(DPH([1.0, 0.0], [0.5 0.3; 0.0 0.4])) === nothing   # stage-specific progression
+    end
+
+    @testset "structure detection keeps stage-specific derivatives" begin
+        # stage-specific progression probabilities that coincide at the evaluation point are not a
+        # shared p: taken for one, the closed forms would drop the derivatives of all but one stage
+        cox(x) = DPH([1.0, 0.0, 0.0], [1-x[1] 0.6x[1] 0; 0 1-x[2] 0.5x[2]; 0 0 1-x[3]])
+        ser(x) = DPH([1.0, 0.0, 0.0], [1-x[1] x[1] 0; 0 1-x[2] x[2]; 0 0 1-x[3]])
+        x0, h = [0.4, 0.4, 0.4], 1e-6
+        @test PTD._coxian_structure(cox(x0)) !== nothing && PTD._shifted_negbin_structure(ser(x0)) !== nothing
+        for build in (cox, ser)
+            f(x) = sum(logpdf(build(x), n) for n in (2, 3, 5, 8))
+            fd = [(f(x0 .+ h .* (1:3 .== i)) - f(x0 .- h .* (1:3 .== i))) / 2h for i in 1:3]
+            @test ForwardDiff.gradient(f, x0) ≈ fd rtol = 1e-6
+        end
+        # the builders' DPHs keep their closed forms under ForwardDiff
+        seen = Bool[]
+        ForwardDiff.gradient([0.3, 0.6]) do x
+            d1 = dph_coxian([x[1], 1 - x[1]], x[2]; first_exit = 2)
+            d2 = dph_negative_binomial_min_support(3, x[2], 5)
+            push!(seen, PTD._coxian_structure(d1) !== nothing, PTD._shifted_negbin_structure(d2) !== nothing)
+            logpdf(d1, 4) + logpdf(d2, 6)
+        end
+        @test !isempty(seen) && all(seen)
+    end
+
     @testset "no name clashes with Distributions/Statistics" begin
         m = Module()
         Core.eval(m, :(using Distributions, Statistics, DiscreteDynamicSurvivalAnalysis.PhaseTypeDistributions))

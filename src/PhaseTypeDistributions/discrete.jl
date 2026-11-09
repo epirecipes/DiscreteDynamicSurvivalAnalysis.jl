@@ -172,6 +172,20 @@ derivative is `(a' + b') / 2` there (with `abs` it was `(3b' - a') / 2`).
 _logaddexp(a, b) = a == -Inf ? b : b == -Inf ? a : max(a, b) + log1p(exp(min(a, b) - max(a, b)))
 
 """
+    _isclose(a, b; atol = 1e-12)
+
+`abs(a - b) ≤ atol` (`isapprox(a, b; atol)` for finite numbers) that, for ForwardDiff `Dual`s, also
+requires every partial derivative of `a - b` to be within `atol` of zero, recursively for nested
+Duals. `isapprox` on Duals compares values only, so entries that are equal at the evaluation point
+but depend on different parameters (stage-specific probabilities that happen to coincide) would
+pass it, and a closed form that assumes one shared parameter would get the wrong derivatives.
+"""
+_isclose(a, b; atol = 1e-12) = _negligible(a - b, atol)
+_negligible(x::Real, atol) = abs(x) ≤ atol
+_negligible(x::ForwardDiff.Dual, atol) =
+    _negligible(ForwardDiff.value(x), atol) && all(d -> _negligible(d, atol), ForwardDiff.partials(x))
+
+"""
     _shifted_negbin_structure(dph) -> (c, r, p) or nothing
 
 Detect a DPH that is `c ≥ 0` deterministic one-step delay states followed by a NegBin chain of
@@ -179,7 +193,9 @@ Detect a DPH that is `c ≥ 0` deterministic one-step delay states followed by a
 `dph_negative_binomial` (c = 0) and `dph_prepend_deterministic_delay(dph_negative_binomial(r, p), c)`.
 Every entry of `α` and `S` is checked, so any other DPH returns `nothing`. The structural zeros
 and ones must be exact constants (with ForwardDiff they carry zero partials, as built by the
-constructors); the remaining entries are compared with `isapprox(...; atol = 1e-12)`.
+constructors); the remaining entries must match `1 - p` and `p` within `1e-12` in value and in
+every partial derivative (`_isclose`), so stage-specific probabilities that coincide at the
+evaluation point are not taken for a shared `p`.
 """
 function _shifted_negbin_structure(dph::DPH)
     α, S, s = dph.α, dph.S, dph.s
@@ -203,18 +219,58 @@ function _shifted_negbin_structure(dph::DPH)
         else
             zero(p)
         end
-        isapprox(S[i, j], target; atol = 1e-12) || return nothing
+        _isclose(S[i, j], target) || return nothing
     end
     return (c, r, p)
 end
 
 """
+    _coxian_structure(dph) -> (p, w) or nothing
+
+Detect a Coxian DPH whose stages share the progression probability `p`, the structure built by
+[`dph_coxian`](@ref): `α = e₁` and `S` upper bidiagonal with a constant diagonal `1 - p`, so that
+each stage is left with probability `p`, for absorption or for the next stage. Returns `p` and the
+weights `w[j]` of leaving after stage `j`: `w[j] = e_j ∏_{i<j} (1 - e_i)` with `e_j = s_j / p`.
+Structural zeros must be exact (with ForwardDiff they carry zero partials), and the diagonal
+entries must be identical (`==`, which for ForwardDiff `Dual`s also compares the partials), as
+`dph_coxian` builds them. Stage-specific progression probabilities that coincide at the
+evaluation point are therefore not taken for a shared `p`, and a diagonal that differs only by
+round-off falls back to the matrix form.
+"""
+function _coxian_structure(dph::DPH)
+    α, S, s = dph.α, dph.S, dph.s
+    k = length(s)
+    isone(α[1]) && all(i -> iszero(α[i]), 2:k) || return nothing
+    q = S[1, 1]
+    p = one(q) - q
+    zero(p) < p || return nothing
+    for i in 1:k, j in 1:k
+        if j == i
+            S[i, j] == q || return nothing
+        elseif j != i + 1
+            iszero(S[i, j]) || return nothing
+        end
+    end
+    T = typeof(float(p))
+    w = Vector{T}(undef, k)
+    reach = one(T)                    # probability of reaching stage j
+    for j in 1:k
+        e = j == k ? one(T) : s[j] / p
+        w[j] = reach * e
+        reach *= one(T) - e
+    end
+    return (p, w)
+end
+
+"""
     logpdf(dph::DPH, x::Integer)
 
-Log probability mass. Geometric, negative binomial and delayed negative binomial DPHs (detected by
-`_shifted_negbin_structure`) use the closed form `negbin_total_logpdf` with scalar arithmetic,
-which is exact and ForwardDiff-safe. Other DPHs use `log(max(pmf(dph, x), 1e-12))`. Returns
-`-Inf` for `x < 1`.
+Log probability mass, in closed form with scalar arithmetic (exact and ForwardDiff-safe) for:
+- geometric, negative binomial and delayed negative binomial DPHs (detected by
+  `_shifted_negbin_structure`), with `negbin_total_logpdf`;
+- Coxian DPHs whose stages share one progression probability (detected by `_coxian_structure`,
+  e.g. [`dph_coxian`](@ref)), as the log of the mixture of negative binomials.
+Other DPHs use `log(max(pmf(dph, x), 1e-12))`. Returns `-Inf` for `x < 1`.
 """
 function logpdf(dph::DPH, x::Integer)
     st = _shifted_negbin_structure(dph)
@@ -223,6 +279,15 @@ function logpdf(dph::DPH, x::Integer)
         return negbin_total_logpdf(x - c, r, p)
     end
     x ≥ 1 || return oftype(float(dph.α[1]), -Inf)
+    cx = _coxian_structure(dph)
+    if cx !== nothing
+        p, w = cx
+        acc = oftype(float(p), -Inf)
+        for j in eachindex(w)
+            w[j] > 0 && (acc = _logaddexp(acc, log(w[j]) + negbin_total_logpdf(x, j, p)))
+        end
+        return acc
+    end
     pmf_val = pmf(dph, x)
     return log(max(pmf_val, 1e-12))
 end

@@ -36,10 +36,14 @@ function extract_figures(content, name)
     end)
 end
 
+# vignettes whose MCMC settings differ from the manuscript's
+const SETTINGS = Dict("measles_hagelloch" => "the manuscript's MCMC settings, with a target acceptance rate of 0.95,")
+
 function note(name)
+    settings = get(SETTINGS, name, "the manuscript's MCMC settings")
     return """
     !!! note "Precomputed with the manuscript settings"
-        The output on this page was precomputed using the manuscript's MCMC settings and is
+        The output on this page was precomputed using $settings and is
         displayed without being re-evaluated. To rerun it, see [Reproducibility](../reproducibility.md).
     """
 end
