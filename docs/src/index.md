@@ -47,7 +47,8 @@ vignettes reproduce the manuscript's analyses.
 - **Likelihood:** the DDSA likelihood and its terms ([`ddsa_loglikelihood`](@ref)).
 - **Models:** single-population models with geometric or negative binomial infectious periods
   ([`DDSAModel`](@ref)), and building blocks for custom Turing models (see the
-  [Hagelloch vignette](vignettes/measles_hagelloch.md)).
+  [Hagelloch vignette](vignettes/measles_hagelloch.md), which also fits a Coxian infectious period
+  on the GLCT map).
 - **Inference:** [`fit_ddsa`](@ref) samples the posterior, then draws ``r`` and ``N`` exactly.
   [`posterior_summary`](@ref), [`posterior_predictive`](@ref) and
   [`recovery_predictive`](@ref) report the results; plot recipes become available when Plots.jl

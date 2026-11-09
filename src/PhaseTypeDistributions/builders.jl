@@ -114,6 +114,59 @@ function dph_negative_binomial_min_support(r::ForwardDiff.Dual, p::Real, δ_min:
 end
 
 """
+    dph_coxian(w, p; first_exit = 1)
+
+Coxian DPH whose stages share the per-step progression probability `p ∈ (0, 1]`. The chain has
+`k = first_exit + length(w) - 1` stages, passed in order at most one per step. After stage
+`j = first_exit, …, k` an individual leaves with probability `w[j - first_exit + 1]` (the weights
+are non-negative and sum to 1) and otherwise moves on to stage `j + 1`. The number of steps to
+absorption is the mixture
+
+    P(W = n) = Σⱼ w_j C(n-1, j-1) p^j (1-p)^(n-j),
+
+with mean `Σⱼ w_j j / p`. Its support starts at the first stage with positive weight, however many
+stages the chain has. All the weight on the last stage gives `dph_negative_binomial(k, p)`.
+
+As a `DPH`, stage `j` is kept with probability `1 - p`. When it is left, the individual is removed
+with probability `e_j = w_j / (w_j + w_{j+1} + …)` and moves to stage `j + 1` otherwise. An exit
+with `p e_j < 1e-12` is dropped (its weight moves to the next exit), so that the rows of `S` sum to
+at most 1 in floating point. [`logpdf`](@ref) recognises the structure and uses the closed form of
+the mixture. Element types are generic, so `w` and `p` may be ForwardDiff `Dual`s.
+
+# Example
+```julia
+d = dph_coxian([0.1, 0.2, 0.7], 0.6; first_exit = 2)   # 4 stages; leave after stage 2, 3 or 4
+pdf(d, 2), mean(d)                                      # 0.036, 6.0
+```
+"""
+function dph_coxian(w::AbstractVector{<:Real}, p::Real; first_exit::Integer = 1)
+    isempty(w) && throw(ArgumentError("w must have at least one exit weight"))
+    first_exit ≥ 1 || throw(ArgumentError("first_exit must be ≥ 1; got $first_exit"))
+    zero(p) < p ≤ one(p) || throw(ArgumentError("progression probability p must be in (0, 1]; got $p"))
+    all(≥(0), w) || throw(ArgumentError("exit weights w must be non-negative"))
+    abs(sum(w) - 1) < DEFAULT_TOLERANCE || throw(ArgumentError("exit weights w must sum to 1; got sum $(sum(w))"))
+    T = float(promote_type(eltype(w), typeof(p)))
+    k = first_exit + length(w) - 1
+    S = zeros(T, k, k)
+    α = zeros(T, k)
+    α[1] = one(T)
+    later = T(sum(w))       # weight of leaving after the current stage or a later one
+    for j in 1:(k - 1)
+        S[j, j] = 1 - p
+        e = zero(T)
+        if j ≥ first_exit
+            wj = T(w[j - first_exit + 1])
+            e = later > 0 ? min(wj / later, one(T)) : one(T)
+            later -= wj
+        end
+        p * e < 1e-12 && (e = zero(T))
+        S[j, j + 1] = p * (1 - e)
+    end
+    S[k, k] = 1 - p
+    return DPH(α, S)
+end
+
+"""
     dph_erlang(k::Integer, μ::Real, Δt::Real=1.0)
 
 Discretised Erlang distribution: the continuous Erlang with `k` phases and continuous mean `μ`

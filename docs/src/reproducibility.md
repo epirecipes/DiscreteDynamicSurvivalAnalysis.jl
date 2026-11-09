@@ -20,6 +20,10 @@ With the environment variable `DDSA_FULL=true`, the vignettes use the manuscript
 - in the DDSA-vs-ODE comparison, 2,000 adaptation steps for the ODE count models, with target
   acceptance 0.95 (0.8 for the ``\gamma``-fixed model).
 
+The Hagelloch vignette differs in one setting: all its fits use target acceptance 0.95 instead of
+the manuscript's 0.8, because its Coxian fit, which goes beyond the manuscript, needs the smaller
+steps to avoid divergent transitions.
+
 The pages in this documentation were rendered with these settings and are shown without being
 rerun. Without `DDSA_FULL=true` the scripts use fewer chains and draws (as few as 2 chains of
 100 draws) with shorter adaptation, and the Ebola vignette fits only wave 2. That mode only checks that
@@ -33,8 +37,8 @@ julia --project=docs --threads=10 scripts/reproduce_manuscript.jl h1n1_wsu ebola
 DDSA_FULL=true julia --project=docs --threads=10 docs/src/vignettes/h1n1_wsu.jl   # one vignette
 ```
 
-Each vignette sets the manuscript's priors, ``r`` support, ``K_\text{age}``, NUTS settings and numerical
-guards.
+Each vignette sets the manuscript's priors, ``r`` support, ``K_\text{age}``, NUTS settings (apart from
+the Hagelloch target acceptance) and numerical guards.
 
 The two Boxcar analyses truncate the infectious period ``W`` at ``K_\text{age}`` age classes in different ways:
 - **Data availability:** the hazard of ``W`` conditioned on ``W \le K_\text{age}``, which is
@@ -68,10 +72,11 @@ Results (Julia 1.11.6, 10 threads, Apple M-series laptop):
 | DDSA vs ODE (5 fits + Poisson identity) | 18 / 18 | 0 | 140 s |
 | H1N1 | 8 / 8 | 0 | 20 s |
 | Ebola waves 1–3 | 24 / 24 | 0 | 52 s |
-| Hagelloch, GLCT and Boxcar | 19 / 19 | 3 | 441 s |
-| **Total** | **94 / 94** | **6** | 12 min |
+| Hagelloch, GLCT and Boxcar | 19 / 19 | 3 | 574 s |
+| **Total** | **94 / 94** | **6** | 14 min |
 
-The wall times include compilation and plotting. All medians are within the sd tolerance, and so
+The wall times include compilation and plotting, and for Hagelloch the Coxian fit, which has no
+counterpart in the manuscript. All medians are within the sd tolerance, and so
 are the mode and distribution of ``r``, the integer group sizes and the Poisson identity (to 4
 decimals).
 

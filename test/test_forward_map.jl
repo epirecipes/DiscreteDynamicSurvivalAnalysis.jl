@@ -83,7 +83,7 @@ end
         # the map stores only the min(K_age, nsteps) occupied classes; with a mean IP of 50 steps
         # (geometric 0.02) many infected reach age 50, so an off-by-one there would show
         for d in (dph_negative_binomial(4, 0.6), dph_geometric(0.25), dph_negative_binomial_min_support(3, 0.45, 5),
-                  dph_geometric(0.02))
+                  dph_geometric(0.02), dph_coxian([0.2, 0.3, 0.5], 0.6; first_exit = 2))
             g = forward_map(GLCT(d), 0.6, 0.01, 50)
             b = forward_map(Boxcar(d, 300), 0.6, 0.01, 50)
             @test attack_fraction(b) ≈ attack_fraction(g) rtol = 1e-10

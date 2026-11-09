@@ -65,7 +65,7 @@ export PhaseType, ph_exponential, ph_erlang, ph_erlang_by_mean
 export DPH, dph_geometric, dph_negative_binomial, dph_erlang
 export dph_from_rates, dph_exponential, dph_erlang_from_rates, dph_erlang_from_mean
 export dph_negative_binomial_from_rates, dph_negative_binomial_from_mean
-export dph_prepend_deterministic_delay, dph_negative_binomial_min_support
+export dph_prepend_deterministic_delay, dph_negative_binomial_min_support, dph_coxian
 export discrete_hazard
 
 # Smooth interpolations
