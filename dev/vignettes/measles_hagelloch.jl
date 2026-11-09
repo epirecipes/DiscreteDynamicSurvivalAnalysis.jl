@@ -24,6 +24,10 @@
 # right order of the three epidemics, and the group sizes ``N_0, N_1, N_2``. NR treat the group
 # sizes as known; DDSA infers them from the final-size terms. The same model is fitted with the
 # GLCT and the Boxcar forward maps, and their agreement checks the implementation.
+#
+# The last section goes beyond the manuscript's analysis. It replaces the serial negative binomial
+# infectious period with a Coxian discrete phase-type distribution on the same GLCT map, which
+# removes the bound on its number of stages.
 
 using DiscreteDynamicSurvivalAnalysis
 using CSV, DataFrames, Distributions, Turing, MCMCChains
@@ -34,10 +38,15 @@ using Logging; disable_logging(Logging.Info) # restored at the end #hide
 const FULL = get(ENV, "DDSA_FULL", "false") == "true"
 const REPRODUCTION = Dict{String,Dict{String,Any}}() #src
 t_start = time()
+nothing #hide
+
+# All fits here use NUTS with a target acceptance rate of 0.95 rather than the manuscript's 0.8.
+# At 0.8 the Coxian fit makes divergent transitions; smaller steps avoid them, and using them for
+# every fit keeps the fits comparable.
 
 const NDRAWS = FULL ? 2000 : 100          # draws per chain after adaptation
 const NCHAINS = FULL ? 4 : 2
-const SAMPLER = FULL ? default_sampler() : NUTS(100, 0.8; max_depth = 12, Δ_max = 1000.0)
+const SAMPLER = NUTS(FULL ? 1000 : 100, 0.95; max_depth = 12, Δ_max = 1000.0)
 const NPPC = FULL ? 200 : 100              # posterior draws used for the predictive checks
 (; FULL, NDRAWS, NCHAINS, SAMPLER, NPPC, threads = Threads.nthreads())
 
@@ -171,33 +180,33 @@ N_total = 197
 N0_max, N1_max, N2_max = N_total - K1 - K2, N_total - K0 - K2, N_total - K0 - K1
 N0_grid = NGrid(K0, K0, N0_max)
 N1_grid = NGrid(K1, K1, N1_max)
-cells = vec(collect(Iterators.product(1:r_max, K2:N2_max)))   # (r, N2) pairs
-(; N0 = K0:N0_max, N1 = K1:N1_max, N2 = K2:N2_max, ncells = length(cells))
+N2_values = K2:N2_max
+cells = vec(collect(Iterators.product(1:r_max, N2_values)))   # (r, N2) pairs
+(; N0 = K0:N0_max, N1 = K1:N1_max, N2 = N2_values, ncells = length(cells))
 
 # ### Likelihood of one (r, N2) cell
 #
-# For given transmission rates, mean infectious period and cell ``(r, N_2)``, the log-likelihood
-# is the sum of:
+# For given transmission rates, infectious-period DPH (here the one with ``r`` stages) and
+# ``N_2``, the log-likelihood is the sum of:
 #
 # - per group, the final-size and infection-time terms (`ddsa_loglikelihood` with
-#   `group = g`), with ``N_0``, ``N_1`` summed out and ``N_2`` known in the cell;
-# - once, the recovery term of the pooled intervals. It depends on ``r`` but not on ``N_2``, so
-#   the model below computes it once per ``r`` and adds it to that ``r``'s cells;
-#   `hagelloch_cell` returns the group terms only.
+#   `group = g`), with ``N_0``, ``N_1`` summed out and ``N_2`` known in the cell. `group_terms`
+#   computes them for any DPH and infection structure;
+# - once, the recovery term of the pooled intervals. It depends on the DPH but not on ``N_2``, so
+#   the model below computes it once per DPH and adds it to that DPH's cells.
 #
 # The manuscript's numerical guard clamps the attack fraction ``\tau_k`` of each group (its expected
-# fraction infected) to ``[0.001, 0.999]``. `hagelloch_cell` also returns the guarded ``\tau_0`` and
+# fraction infected) to ``[0.001, 0.999]``. `group_terms` also returns the guarded ``\tau_0`` and
 # ``\tau_1``, which are used later to draw ``N_0`` and ``N_1``.
 
-hd = (; groups, delta, δ_floor, r_max, nsteps, N0_grid, N1_grid, cells,
+hd = (; groups, delta, δ_floor, r_max, nsteps, N0_grid, N1_grid, N2_values,
       guards = NumericalGuards(τ_bounds = (0.001, 0.999)))
 
 ## infectious period with r stages and mean mean_δ: p = r / (E[δ] − δ_min + r)
 hagelloch_dph(hd, r, mean_δ) = dph_negative_binomial_min_support(r, r / (mean_δ - hd.δ_floor + r), hd.δ_floor)
 
-function hagelloch_cell(hd, make_structure, foi, r, N2, mean_δ)
-    dph = hagelloch_dph(hd, r, mean_δ)
-    sol = forward_map(make_structure(dph), foi, [0.0, 0.0, 1 / N2], hd.nsteps)
+function group_terms(hd, structure, dph, foi, N2)
+    sol = forward_map(structure, foi, [0.0, 0.0, 1 / N2], hd.nsteps)
     ll = zero(eltype(dph.s))
     τ = zeros(eltype(dph.s), 3)
     for (g, pop) in enumerate((hd.N0_grid, hd.N1_grid, N2))
@@ -209,82 +218,109 @@ function hagelloch_cell(hd, make_structure, foi, r, N2, mean_δ)
     return (ll = ll, τ0 = τ[1], τ1 = τ[2])
 end
 
+# ### Infectious-period model
+#
+# The infectious period is a small Turing model of its own. It samples its parameters and returns
+# one DPH for each value of its integer parameter, which is summed out together with ``N_2``. For
+# the serial negative binomial, NUTS samples ``E[\delta]`` and the model returns the DPHs with
+# ``r = 1, \ldots, 4`` stages. Another law only needs another such model; the last section uses a
+# Coxian DPH.
+
+@model function serial_negbin(hd)
+    mean_δ ~ Uniform(hd.δ_floor + 0.5, 25.0)
+    return [hagelloch_dph(hd, r, mean_δ) for r in 1:hd.r_max]
+end
+
 # ### Turing model
 #
-# NUTS samples the four transmission rates and ``E[\delta]``. The 40 cells are summed out with
+# NUTS samples the four transmission rates and the parameters of the infectious-period model
+# `ip`, which enters as a submodel. The cells pair each DPH that `ip` returns with each value of
+# ``N_2`` (40 cells for the serial negative binomial). They are summed out with
 # [`marginal_r_loglik`](@ref), evaluated as parallel tasks (`threaded = true`), with a uniform
-# prior over the cells. The recovery term is computed once for each of the 4 values of ``r`` and
-# shared by that ``r``'s 10 cells. 
-# The model returns the per-cell log-likelihoods, from which ``(r, N_2)`` is drawn after sampling. 
-# And `make_structure` turns the DPH into the infection structure of the map, GLCT or Boxcar.
+# prior over the cells. The recovery term and the infection structure are computed once per DPH,
+# and `make_structure` turns a DPH into the infection structure of the map, GLCT or Boxcar.
+# The model returns the per-cell log-likelihoods, the DPHs and the cells, from which the integer
+# parameters are drawn after sampling.
 
-@model function hagelloch_mtheta(hd, make_structure)
+@model function hagelloch_mtheta(hd, ip, make_structure)
     beta_C1 ~ Exponential(0.2)
     beta_C2 ~ Exponential(0.1)
     beta_H ~ Exponential(0.1)
     beta_G ~ Exponential(0.1)
-    mean_δ ~ Uniform(hd.δ_floor + 0.5, 25.0)
+    dphs ~ to_submodel(ip, false)                      # false: keep the submodel's parameter names
     foi = mtheta_foi(beta_C1, beta_C2, beta_H, beta_G)
-    rec = [recovery_loglik(hagelloch_dph(hd, r, mean_δ), hd.delta) for r in 1:hd.r_max]
-    logmarg, lps = marginal_r_loglik(hd.cells; threaded = true) do (r, N2)
-        hagelloch_cell(hd, make_structure, foi, r, N2, mean_δ).ll + rec[r]
+    rec = [recovery_loglik(d, hd.delta) for d in dphs]
+    structures = [make_structure(d) for d in dphs]
+    cells = vec(collect(Iterators.product(eachindex(dphs), hd.N2_values)))
+    logmarg, lps = marginal_r_loglik(cells; threaded = true) do (v, N2)
+        group_terms(hd, structures[v], dphs[v], foi, N2).ll + rec[v]
     end
     Turing.@addlogprob! logmarg
-    return lps
+    return (lps = lps, dphs = dphs, cells = cells)
 end
 
 glct_structure(dph) = GLCT(dph)
 boxcar_structure(dph) = Boxcar(dph, K_age)     # truncation = :absorb
-model_glct = hagelloch_mtheta(hd, glct_structure)
-model_boxcar = hagelloch_mtheta(hd, boxcar_structure)
+model_glct = hagelloch_mtheta(hd, serial_negbin(hd), glct_structure)
+model_boxcar = hagelloch_mtheta(hd, serial_negbin(hd), boxcar_structure)
 logjoint(model_glct, (beta_C1 = 0.1174, beta_C2 = 0.021, beta_H = 0.0124, beta_G = 0.0638, mean_δ = 8.3537))
 
 # ## Fit
 #
 # The chains start from jittered data-based values, as in the manuscript: the transmission rates
-# at their prior medians, ``E[\delta]`` at the mean recorded interval, each multiplied by
-# ``e^{0.1 z}`` with ``z \sim \mathcal{N}(0, 1)``.
+# at their prior medians and the infectious-period parameters from the recorded intervals (for the
+# serial negative binomial, ``E[\delta]`` at their mean), each multiplied by ``e^{0.1 z}`` with
+# ``z \sim \mathcal{N}(0, 1)``. `ip_init` gives the infectious-period part.
 
-function data_inits(rng, hd, n)
-    j() = exp(0.1 * randn(rng))
-    return [InitFromParams((beta_C1 = j() * median(Exponential(0.2)), beta_C2 = j() * median(Exponential(0.1)),
-                            beta_H = j() * median(Exponential(0.1)), beta_G = j() * median(Exponential(0.1)),
-                            mean_δ = clamp(j() * mean(hd.delta), minimum(hd.delta) + 0.6, 24.9)))
+jitter(rng) = exp(0.1 * randn(rng))
+serial_init(rng, hd) = (mean_δ = clamp(jitter(rng) * mean(hd.delta), minimum(hd.delta) + 0.6, 24.9),)
+
+function data_inits(rng, hd, n, ip_init)
+    return [InitFromParams(merge((beta_C1 = jitter(rng) * median(Exponential(0.2)),
+                                  beta_C2 = jitter(rng) * median(Exponential(0.1)),
+                                  beta_H = jitter(rng) * median(Exponential(0.1)),
+                                  beta_G = jitter(rng) * median(Exponential(0.1))), ip_init(rng, hd)))
             for _ in 1:n]
 end
 
 # After sampling, each draw gets integer values from their conditional posteriors.
 #
-# 1. ``(r, N_2)`` is drawn over the cells from the returned per-cell log-likelihoods
+# 1. A cell (a DPH and ``N_2``) is drawn from the returned per-cell log-likelihoods
 #    ([`sample_index`](@ref)).
 # 2. The map of that cell is rerun to get the attack fractions of classes 0 and 1.
 # 3. ``N_0`` and ``N_1`` are drawn given those attack fractions ([`sample_N`](@ref)).
 #
-# The draws are added to the chain as `:r`, `:N0`, `:N1` and `:N2`.
+# The draws are added to the chain as `:N0`, `:N1` and `:N2` and, when the infectious-period model
+# returns several DPHs, the index of the drawn one under the name `variant` (here `:r`).
 
-function add_integer_draws(rng, hd, model, chain, make_structure)
-    lps = returned(model, chain)
-    niter, nch = size(lps)
-    pars = [Array(chain[s]) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G, :mean_δ)]
-    draws = zeros(Int, niter, 4, nch)
+function add_integer_draws(rng, hd, model, chain, make_structure; variant = :r)
+    rets = returned(model, chain)
+    niter, nch = size(rets)
+    betas = [Array(chain[s]) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G)]
+    names = variant === nothing ? [:N0, :N1, :N2] : [variant, :N0, :N1, :N2]
+    draws = zeros(Int, niter, length(names), nch)
     for c in 1:nch, i in 1:niter
-        r, N2 = hd.cells[sample_index(rng, lps[i, c])]
-        foi = mtheta_foi((pars[k][i, c] for k in 1:4)...)
-        cell = hagelloch_cell(hd, make_structure, foi, r, N2, pars[5][i, c])
-        draws[i, :, c] = [r, sample_N(rng, hd.N0_grid, cell.τ0), sample_N(rng, hd.N1_grid, cell.τ1), N2]
+        (; lps, dphs, cells) = rets[i, c]
+        v, N2 = cells[sample_index(rng, lps)]
+        foi = mtheta_foi((b[i, c] for b in betas)...)
+        cell = group_terms(hd, make_structure(dphs[v]), dphs[v], foi, N2)
+        Ns = [sample_N(rng, hd.N0_grid, cell.τ0), sample_N(rng, hd.N1_grid, cell.τ1), N2]
+        draws[i, :, c] = variant === nothing ? Ns : [v; Ns]
     end
-    return hcat(chain, MCMCChains.setrange(Chains(draws, [:r, :N0, :N1, :N2]), range(chain)))
+    return hcat(chain, MCMCChains.setrange(Chains(draws, names), range(chain)))
 end
 
-function fit_mtheta(rng, hd, model, make_structure)
+function fit_mtheta(rng, hd, model, make_structure, ip_init; variant = :r)
     chain = sample(rng, model, SAMPLER, MCMCThreads(), NDRAWS, NCHAINS; progress = false,
-                   chain_type = Chains, initial_params = data_inits(rng, hd, NCHAINS))
-    return add_integer_draws(rng, hd, model, chain, make_structure)
+                   chain_type = Chains, initial_params = data_inits(rng, hd, NCHAINS, ip_init))
+    return add_integer_draws(rng, hd, model, chain, make_structure; variant)
 end
 
-t_glct = @elapsed chain_glct = fit_mtheta(Xoshiro(20261006), hd, model_glct, glct_structure)
-t_boxcar = @elapsed chain_boxcar = fit_mtheta(Xoshiro(20261007), hd, model_boxcar, boxcar_structure)
-(seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1))
+t_glct = @elapsed chain_glct = fit_mtheta(Xoshiro(20261006), hd, model_glct, glct_structure, serial_init)
+t_boxcar = @elapsed chain_boxcar = fit_mtheta(Xoshiro(20261007), hd, model_boxcar, boxcar_structure, serial_init)
+divergences(chain) = Int(sum(Array(chain[:numerical_error])))
+(seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1),
+ divergent_transitions = (glct = divergences(chain_glct), boxcar = divergences(chain_boxcar)))
 
 # Convergence diagnostics (bulk/tail effective sample sizes and ``\hat R``) of the GLCT fit:
 
@@ -314,17 +350,35 @@ end
 
 pooled(chain, s) = vec(Array(chain[s]))     # chain 1 first, then chain 2, …
 
-function posterior_quantities(chain, hd)
-    d = Dict{Symbol,Vector{Float64}}(s => pooled(chain, s) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G, :mean_δ,
-                                                                     :r, :N0, :N1, :N2))
-    d[:p] = d[:r] ./ (d[:mean_δ] .- hd.δ_floor .+ d[:r])
+# The infectious-period DPH of each draw is that of the infectious-period model at the draw's
+# parameters, for the drawn `variant`. `posterior_quantities` collects the draws of the
+# parameters, the mean ``E[\delta]``, the per-stage progression probability ``p`` (that of the
+# last stage), the coefficient of variation ``\text{CV}_\delta`` of the infectious period and ``R_0``.
+
+function posterior_dphs(chain, ip; variant = :r)
+    rets = returned(ip, chain)
+    pick(i, c) = variant === nothing ? 1 : Int(chain[variant][i, c])
+    return vec([rets[i, c][pick(i, c)] for i in axes(rets, 1), c in axes(rets, 2)])
+end
+
+dph_cv(d) = sqrt(var(d)) / mean(d)
+
+function posterior_quantities(chain, dphs)
+    d = Dict{Symbol,Vector{Float64}}(s => pooled(chain, s) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G,
+                                                                     :N0, :N1, :N2))
+    :r in names(chain) && (d[:r] = pooled(chain, :r))
+    d[:mean_δ] = mean.(dphs)
+    d[:p] = [1 - x.S[end, end] for x in dphs]
+    d[:cv_δ] = dph_cv.(dphs)
     d[:R0] = [compute_R0_mtheta(d[:beta_C1][i], d[:beta_C2][i], d[:beta_H][i], d[:beta_G][i], d[:mean_δ][i],
-                                d[:N0][i], d[:N1][i], d[:N2][i]) for i in eachindex(d[:r])]
+                                d[:N0][i], d[:N1][i], d[:N2][i]) for i in eachindex(dphs)]
     return d
 end
 
-post_glct = posterior_quantities(chain_glct, hd)
-post_boxcar = posterior_quantities(chain_boxcar, hd)
+dphs_glct = posterior_dphs(chain_glct, serial_negbin(hd))
+dphs_boxcar = posterior_dphs(chain_boxcar, serial_negbin(hd))
+post_glct = posterior_quantities(chain_glct, dphs_glct)
+post_boxcar = posterior_quantities(chain_boxcar, dphs_boxcar)
 for (key, post) in (("hagelloch.glct", post_glct), ("hagelloch.boxcar", post_boxcar)) #src
     REPRODUCTION[key] = Dict{String,Any}((s === :mean_δ ? "mean_delta" : String(s)) => v for (s, v) in post #src
                                          if s !== :p) #src
@@ -375,21 +429,20 @@ plot(posterior_panel(post_glct[:beta_C1]; title = "β_C1", color = :steelblue),
 # ### Posterior predictive checks
 #
 # For `NPPC` draws evenly spaced over the pooled chains, the map is rerun at the draw's parameters
-# (including its ``r`` and ``N_2``). The expected new infections per day of group ``k`` are
+# (including its DPH and ``N_2``). The expected new infections per day of group ``k`` are
 # ``N_k \tau_k f_k``, with ``N_k`` the draw's group size and ``f_k`` the group's infection-time
 # distribution, so the curves show the model's own
 # epidemic size. Each group's result is a [`PosteriorPredictive`](@ref), so the package's plot
 # recipe and [`predictive_quantiles`](@ref) apply.
 
-function group_predictive(rng, hd, post, make_structure; ndraws)
-    idx = unique(round.(Int, range(1, length(post[:r]); length = ndraws)))
+function group_predictive(rng, hd, post, dphs, make_structure; ndraws)
+    idx = unique(round.(Int, range(1, length(dphs); length = ndraws)))
     inc = [zeros(hd.nsteps, length(idx)) for _ in 1:3]
     τ = zeros(length(idx), 3)
     final = zeros(Int, length(idx), 3)
     for (j, i) in enumerate(idx)
-        r = Int(post[:r][i])
         N = Int.((post[:N0][i], post[:N1][i], post[:N2][i]))
-        dph = hagelloch_dph(hd, r, post[:mean_δ][i])
+        dph = dphs[i]
         foi = mtheta_foi(post[:beta_C1][i], post[:beta_C2][i], post[:beta_H][i], post[:beta_G][i])
         sol = forward_map(make_structure(dph), foi, [0.0, 0.0, 1 / N[3]], hd.nsteps)
         for g in 1:3
@@ -404,8 +457,8 @@ function group_predictive(rng, hd, post, make_structure; ndraws)
     return (pps = pps, τ = τ, idx = idx)
 end
 
-ppc_glct = group_predictive(Xoshiro(1), hd, post_glct, glct_structure; ndraws = NPPC)
-ppc_boxcar = group_predictive(Xoshiro(2), hd, post_boxcar, boxcar_structure; ndraws = NPPC)
+ppc_glct = group_predictive(Xoshiro(1), hd, post_glct, dphs_glct, glct_structure; ndraws = NPPC)
+ppc_boxcar = group_predictive(Xoshiro(2), hd, post_boxcar, dphs_boxcar, boxcar_structure; ndraws = NPPC)
 nothing #hide
 
 # Predicted ``\tau_k`` against the observed attack fractions ``K_k / N_k``, both per posterior
@@ -449,19 +502,152 @@ ppc_plot(ppc_boxcar, "Boxcar")
 # The posterior infectious-period distribution against the pooled recorded intervals, as a
 # [`RecoveryPredictive`](@ref):
 
-function recovery_check(post, hd; ndraws, max_interval = maximum(hd.delta) + 3)
-    idx = unique(round.(Int, range(1, length(post[:r]); length = ndraws)))
+function recovery_check(dphs, hd; ndraws, max_interval = maximum(hd.delta) + 3)
+    idx = unique(round.(Int, range(1, length(dphs); length = ndraws)))
     P = zeros(max_interval, length(idx))
     for (j, i) in enumerate(idx)
-        r = Int(post[:r][i])
-        dph = hagelloch_dph(hd, r, post[:mean_δ][i])
-        P[:, j] .= [pdf(dph, x) for x in 1:max_interval]
+        P[:, j] .= [pdf(dphs[i], x) for x in 1:max_interval]
     end
     return RecoveryPredictive(1:max_interval, P, [count(==(x), hd.delta) for x in 1:max_interval])
 end
 
-rp = recovery_check(post_glct, hd; ndraws = NPPC)
+rp = recovery_check(dphs_glct, hd; ndraws = NPPC)
 plot(rp; xlabel = "infectious period (days)", size = (600, 320), color = :steelblue)
+
+# ## A Coxian infectious period on the GLCT map
+#
+# ### The stage bound of the serial infectious period
+#
+# The serial DPH passes through at most one stage per day, so ``r`` stages last at least ``r``
+# days and ``r \le \delta_{\min} = 4``. The posterior of ``r`` sits at that bound, and the fitted
+# infectious period is more variable than the 188 recorded intervals ``\delta`` (coefficients of
+# variation, CV):
+
+cv_recorded, mean_recorded = std(delta) / mean(delta), mean(delta)
+(P_r_at_bound = mean(post_glct[:r] .== r_max), recorded_cv = round(cv_recorded; digits = 3),
+ fitted_cv = qfmt(post_glct[:cv_δ]))
+
+# A DPH with ``k`` stages and mean ``m > k`` has a squared CV of at least ``1/k - 1/m``, and the
+# negative binomial attains it (Telek, 2000). With the mean of the recorded intervals, reaching
+# their CV therefore needs at least this many stages, more than a serial chain can have here:
+
+k_cox = ceil(Int, 1 / (cv_recorded^2 + 1 / mean_recorded))
+
+# ### A Coxian DPH
+#
+# In a Coxian DPH the stages are still passed in order, at most one per day, but an individual can
+# leave after any of several stages. Here the chain has ``k = 6`` stages with a common per-day
+# progression probability ``p``, and an individual leaves after stage ``j \in \{4, 5, 6\}`` with
+# probability ``w_j`` (``w_4 + w_5 + w_6 = 1``). No one leaves before stage ``\delta_{\min}``,
+# because no recorded interval is shorter. The infectious period is a mixture of negative binomials,
+#
+# ```math
+# P(\delta = n) = \sum_{j=4}^{6} w_j \binom{n-1}{j-1} p^j (1-p)^{n-j}, \qquad n \ge 4,
+# ```
+#
+# with mean ``\sum_j w_j\, j / p``. Its support starts at 4 days whatever the number of stages, so
+# the shortest interval no longer bounds ``k``. With all the weight on ``j = 4`` it is the serial
+# negative binomial with ``r = 4``.
+#
+# [`dph_coxian`](@ref)`(w, p; first_exit = 4)` builds it as a [`DPH`](@ref), which the GLCT map
+# takes as it is. Its log pmf has the closed form above, which `logpdf`, and so
+# [`recovery_loglik`](@ref), use; it agrees with the matrix form of the DPH:
+
+dph_cox_demo = dph_coxian([0.05, 0.05, 0.9], 0.74; first_exit = δ_floor)
+(states = length(dph_cox_demo.α), mean = round(mean(dph_cox_demo); digits = 2),
+ cv = round(dph_cv(dph_cox_demo); digits = 3), recovery_loglik = recovery_loglik(dph_cox_demo, delta),
+ from_matrix_pmf = sum(log(pdf(dph_cox_demo, x)) for x in delta))
+
+# ### Model and fit
+#
+# Only the infectious-period model changes. NUTS samples ``p`` (uniform prior) and the exit
+# weights ``(w_4, w_5, w_6)`` (uniform Dirichlet prior), and the model returns the single Coxian
+# DPH, so the cells are the 10 values of ``N_2``. The chains start from equal exit weights and
+# ``p`` from the mean recorded interval. The Turing model, the fit and the posterior summaries are
+# the ones above; with no integer parameter of its own, the Coxian has no `variant`.
+
+@model function coxian_ip(hd, k)
+    p ~ Beta(1, 1)
+    w ~ Dirichlet(ones(k - hd.δ_floor + 1))
+    return [dph_coxian(w, p; first_exit = hd.δ_floor)]
+end
+
+coxian_init(rng, hd, k) = (p = clamp(jitter(rng) * (hd.δ_floor + k) / 2 / mean(hd.delta), 0.05, 0.95),
+                           w = fill(1 / (k - hd.δ_floor + 1), k - hd.δ_floor + 1))
+
+ip_cox = coxian_ip(hd, k_cox)
+model_coxian = hagelloch_mtheta(hd, ip_cox, glct_structure)
+t_coxian = @elapsed chain_coxian = fit_mtheta(Xoshiro(20261008), hd, model_coxian, glct_structure,
+                                              (rng, hd) -> coxian_init(rng, hd, k_cox); variant = nothing)
+(seconds_coxian = round(t_coxian; digits = 1), divergent_transitions = divergences(chain_coxian))
+
+#-
+
+summarystats(chain_coxian)
+
+# ### Results
+#
+# Posterior medians and 95% credible intervals of the Coxian fit beside the serial GLCT fit. ``R_0``
+# uses the same next-generation matrix with the Coxian mean.
+
+dphs_cox = posterior_dphs(chain_coxian, ip_cox; variant = nothing)
+post_cox = posterior_quantities(chain_coxian, dphs_cox)
+cox_params = [:beta_C1, :beta_C2, :beta_H, :beta_G, :mean_δ, :cv_δ, :N0, :N1, :N2, :R0]
+DataFrame(parameter = String.(cox_params), serial_GLCT = [fmt(post_glct[s]) for s in cox_params],
+          Coxian_GLCT = [fmt(post_cox[s]) for s in cox_params])
+
+# The Coxian's own parameters:
+
+exit_stages = δ_floor:k_cox
+DataFrame(parameter = ["p"; ["w_$j" for j in exit_stages]],
+          posterior = [fmt(post_cox[:p]); [fmt(pooled(chain_coxian, Symbol("w[$i]"))) for i in eachindex(exit_stages)]])
+
+# The recovery term at the posterior draws of each fit:
+
+(serial = qfmt(recovery_loglik.(dphs_glct, Ref(delta))), coxian = qfmt(recovery_loglik.(dphs_cox, Ref(delta))))
+
+# The recorded intervals against the posterior infectious period of each fit:
+
+rp_cox = recovery_check(dphs_cox, hd; ndraws = NPPC)
+plot(plot(rp; title = "serial negative binomial", color = :steelblue, xlabel = "infectious period (days)"),
+     plot(rp_cox; title = "Coxian, k = $k_cox", color = :darkorange, xlabel = "infectious period (days)");
+     layout = (1, 2), size = (1050, 320), link = :y, left_margin = 4mm, bottom_margin = 4mm)
+
+# The predicted attack fractions of the two fits, and the Coxian fit's predictive checks:
+
+ppc_cox = group_predictive(Xoshiro(3), hd, post_cox, dphs_cox, glct_structure; ndraws = NPPC)
+DataFrame(group = ["class 0", "class 1", "class 2"],
+          predicted_τ_serial = [qfmt(ppc_glct.τ[:, g]) for g in 1:3],
+          predicted_τ_Coxian = [qfmt(ppc_cox.τ[:, g]) for g in 1:3],
+          observed_K_over_N = [qfmt(K ./ post_cox[N][ppc_cox.idx]) for (K, N) in zip((K0, K1, K2), (:N0, :N1, :N2))])
+
+#-
+
+ppc_plot(ppc_cox, "Coxian GLCT")
+
+# The Coxian infectious period has the same spread as the 188 recorded intervals ``\delta``: its
+# coefficient of variation is 0.23, against 0.22 for the recorded intervals and 0.36 for the serial
+# fit. It raises the recovery log-likelihood by about 39, and its mean (8.11 days) is closer to the
+# mean recorded interval (7.95 days) than the serial fit's (8.36 days). ``R_0`` is about 5% lower
+# (2.06 against 2.17), with overlapping intervals. The transmission
+# rates and group sizes change little, and the attack fractions of classes 0 and 2 are still
+# under-predicted: that misfit comes from the mean-field contact structure, not from the
+# infectious period.
+
+# ### The same law on the Boxcar map
+#
+# The Coxian DPH also goes into the Boxcar map, through its age-specific hazard. At the posterior
+# medians both maps give the same epidemic, up to the probability of an infectious period longer
+# than the ``K_\text{age}`` tracked ages. The GLCT map tracks 6 stages, the Boxcar map 40 ages:
+
+w_med = [median(pooled(chain_coxian, Symbol("w[$i]"))) for i in eachindex(exit_stages)]
+dph_cox_med = dph_coxian(w_med ./ sum(w_med), median(post_cox[:p]); first_exit = δ_floor)
+foi_med = mtheta_foi((median(post_cox[s]) for s in (:beta_C1, :beta_C2, :beta_H, :beta_G))...)
+ρ_med = [0.0, 0.0, 1 / round(Int, median(post_cox[:N2]))]
+sol_cox_glct = forward_map(GLCT(dph_cox_med), foi_med, ρ_med, nsteps)
+sol_cox_boxcar = forward_map(Boxcar(dph_cox_med, K_age), foi_med, ρ_med, nsteps)
+(glct_states = length(dph_cox_med.α), boxcar_ages = K_age, P_beyond_K_age = ccdf(dph_cox_med, K_age),
+ max_abs_diff_S = maximum(abs.(sol_cox_glct.S .- sol_cox_boxcar.S)))
 
 # ## Substituting your own data or model
 #
@@ -478,13 +664,18 @@ plot(rp; xlabel = "infectious period (days)", size = (600, 320), color = :steelb
 #   [`NGrid`](@ref) (any prior through its `logprior` keyword). A known size is passed as an
 #   integer.
 # - **Infectious period.** Any [`DPH`](@ref) works with `GLCT`, and `Boxcar(dph, K_age)` gives the
-#   infection-age map. Integer parameters of the DPH go into the cells.
+#   infection-age map. Write the law as an infectious-period model like `serial_negbin` or
+#   `coxian_ip`: it samples the continuous parameters and returns one DPH per value of its integer
+#   parameters, which go into the cells. `hagelloch_mtheta`, `fit_mtheta` and the posterior
+#   functions take it unchanged; give `fit_mtheta` a matching `ip_init`, and a `variant` name when
+#   it returns several DPHs.
 # - **Guards and terms.** `ddsa_loglikelihood(...; guards, terms)` selects the numerical guards
 #   and the likelihood terms of each group.
 #
 # ## Runtime
 
 disable_logging(Logging.BelowMinLevel) #hide
-(mode = FULL ? "full (manuscript settings)" : "reduced (code check, not for results)",
+(mode = FULL ? "full (manuscript settings, target acceptance 0.95)" : "reduced (code check, not for results)",
  threads = Threads.nthreads(), seconds_total = round(time() - t_start; digits = 1),
- seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1))
+ seconds_glct = round(t_glct; digits = 1), seconds_boxcar = round(t_boxcar; digits = 1),
+ seconds_coxian = round(t_coxian; digits = 1))
