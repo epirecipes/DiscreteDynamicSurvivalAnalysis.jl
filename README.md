@@ -1,5 +1,8 @@
 # DiscreteDynamicSurvivalAnalysis.jl
 
+[![Docs (dev)](https://img.shields.io/badge/docs-dev-blue.svg)](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/)
+[![CI](https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
+
 *Fit SIR models to case line lists, in discrete time.*
 
 DiscreteDynamicSurvivalAnalysis.jl fits deterministic, mean-field SIR models, for one population
@@ -65,19 +68,22 @@ steps. Start Julia with `--threads` to run the chains in parallel.
 
 ## Documentation
 
-The documentation is built from `docs/`:
-- [Guide](docs/src/guide.md): the data schema, infectious-period models, likelihood terms,
-  guards, population options, and the multi-group interface;
-- [API reference](docs/src/api.md);
-- vignettes that reproduce the manuscript's analyses ([data availability](docs/src/vignettes/data_availability.jl),
-  [DDSA vs ODE](docs/src/vignettes/ddsa_vs_ode.jl), [H1N1](docs/src/vignettes/h1n1_wsu.jl),
-  [Ebola](docs/src/vignettes/ebola_drc.jl), [Hagelloch measles](docs/src/vignettes/measles_hagelloch.jl)),
-  and a [walk-through for your own line list](docs/src/vignettes/external_data.jl);
-- [Reproducibility](docs/src/reproducibility.md): how to rerun the manuscript analyses and how the
-  results compare with the manuscript.
+The [documentation](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/) contains:
+- [Guide](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/guide/): the data schema,
+  infectious-period models, likelihood terms, guards, population options, and the multi-group interface;
+- [API reference](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/api/);
+- vignettes that reproduce the manuscript's analyses
+  ([data availability](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/data_availability/),
+  [DDSA vs ODE](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/ddsa_vs_ode/),
+  [H1N1](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/h1n1_wsu/),
+  [Ebola](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/ebola_drc/),
+  [Hagelloch measles](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/measles_hagelloch/)),
+  and a [walk-through for your own line list](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/external_data/);
+- [Reproducibility](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/reproducibility/): how to
+  rerun the manuscript analyses and how the results compare with the manuscript.
 
-The manuscript vignettes are shown pre-rendered with the manuscript settings, so the docs build
-itself takes about a minute.
+The documentation is built from `docs/`. The manuscript vignettes are shown pre-rendered with the
+manuscript settings, so the docs build itself takes about a minute.
 
 ```sh
 julia --project=docs -e 'using Pkg; Pkg.instantiate()'
