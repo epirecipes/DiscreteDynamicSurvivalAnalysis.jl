@@ -11,9 +11,13 @@ using Documenter, Literate, TOML, SHA
 using DiscreteDynamicSurvivalAnalysis
 
 const SRC = joinpath(@__DIR__, "src")
-const VIGNETTES = ["data_availability.jl", "ddsa_vs_ode.jl", "h1n1_wsu.jl", "ebola_drc.jl",
-                   "measles_hagelloch.jl", "external_data.jl"]   # page titles are the files' H1 headings
-const LIVE = ["external_data.jl"]                                # executed in every build
+# Page titles are the files' H1 headings; the sidebar shows the tutorial first, then the manuscript analyses.
+const TUTORIALS = ["external_data.jl"]                                     # how to use the package on your own data
+const MANUSCRIPT = ["data_availability.jl", "ddsa_vs_ode.jl", "h1n1_wsu.jl", "ebola_drc.jl",
+                    "measles_hagelloch.jl"]                                # reproduce the manuscript's analyses
+const VIGNETTES = [TUTORIALS; MANUSCRIPT]
+const LIVE = ["external_data.jl"]                                          # executed in every build
+vignette_page(file) = "vignettes/" * replace(file, ".jl" => ".md")
 
 # Literate source → Documenter markdown (executed by Documenter's @example blocks)
 const VIGNETTE_DIR = joinpath(SRC, "vignettes")
@@ -54,7 +58,7 @@ makedocs(;
     pages = [
         "Home" => "index.md",
         "Guide" => "guide.md",
-        "Vignettes" => ["vignettes/" * replace(file, ".jl" => ".md") for file in VIGNETTES],
+        "Vignettes" => [vignette_page.(TUTORIALS); "Manuscript analyses" => vignette_page.(MANUSCRIPT)],
         "API reference" => "api.md",
         "Reproducibility" => "reproducibility.md",
     ],

@@ -109,14 +109,14 @@ plot(posterior_predictive(Xoshiro(2), fit); title = "posterior predictive infect
 
 - The [Guide](guide.md) describes the data schema, the infectious-period models, the likelihood
   terms, the guards, the population options and the multi-group interface.
-- The vignettes reproduce the manuscript's analyses:
+- [Analysing your own line list](vignettes/external_data.md) shows how to use the package on a new
+  data set: from a CSV file with calendar dates to a fitted and checked model.
+- The other vignettes reproduce the manuscript's analyses:
   - [data availability](vignettes/data_availability.md);
   - [DDSA vs ODE count models](vignettes/ddsa_vs_ode.md);
   - [H1N1](vignettes/h1n1_wsu.md);
   - [Ebola](vignettes/ebola_drc.md);
   - [Hagelloch measles](vignettes/measles_hagelloch.md).
-
-  [Using your own line list](vignettes/external_data.md) walks through a new data set.
 - The [API reference](api.md) documents every function.
 - [Reproducibility](reproducibility.md) explains how to rerun the manuscript analyses and how the
   results compare with the manuscript.

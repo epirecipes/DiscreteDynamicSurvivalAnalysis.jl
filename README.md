@@ -71,14 +71,16 @@ steps. Start Julia with `--threads` to run the chains in parallel.
 The [documentation](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/) contains:
 - [Guide](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/guide/): the data schema,
   infectious-period models, likelihood terms, guards, population options, and the multi-group interface;
+- [Analysing your own line list](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/external_data/):
+  how to use the package on a new data set, from a CSV file with calendar dates to a fitted and
+  checked model;
 - [API reference](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/api/);
 - vignettes that reproduce the manuscript's analyses
   ([data availability](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/data_availability/),
   [DDSA vs ODE](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/ddsa_vs_ode/),
   [H1N1](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/h1n1_wsu/),
   [Ebola](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/ebola_drc/),
-  [Hagelloch measles](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/measles_hagelloch/)),
-  and a [walk-through for your own line list](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/external_data/);
+  [Hagelloch measles](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/vignettes/measles_hagelloch/));
 - [Reproducibility](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/reproducibility/): how to
   rerun the manuscript analyses and how the results compare with the manuscript.
 
