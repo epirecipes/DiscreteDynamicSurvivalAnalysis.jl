@@ -34,8 +34,10 @@ parameter, the initially infected fraction ``\rho``) are sampled with NUTS throu
 [Turing.jl](https://turinglang.org).
 
 DDSA is the discrete-time counterpart of the continuous-time dynamic survival analysis (DSA) of
-KhudaBukhsh et al., Di Lauro et al. and Vossler et al. This package implements the methods of the manuscript
-*Discrete dynamic survival analysis of epidemic case line lists* (in preparation), and its
+[KhudaBukhsh et al. (2020)](https://doi.org/10.1098/rsfs.2019.0048) and
+[Di Lauro et al. (2022)](https://doi.org/10.1098/rsif.2022.0124). This package implements the methods of the manuscript
+*Discrete dynamic survival analysis of epidemic case line lists* (medRxiv preprint,
+[doi:10.64898/2026.11.10.26367756](https://doi.org/10.64898/2026.11.10.26367756)), and its
 vignettes reproduce the manuscript's analyses.
 
 ## What the package covers

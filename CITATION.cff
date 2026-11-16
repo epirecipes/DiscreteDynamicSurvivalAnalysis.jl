@@ -25,15 +25,19 @@ authors:
 preferred-citation:
   type: article
   title: "Discrete dynamic survival analysis of epidemic case line lists"
-  status: in-preparation
+  status: preprint
+  doi: "10.64898/2026.11.10.26367756"
+  url: "https://doi.org/10.64898/2026.11.10.26367756"
+  journal: medRxiv
+  year: 2026
   authors:
     - family-names: Montes-Olivas
       given-names: Sandra
     - family-names: Abbott
       given-names: Sam
-    - family-names: Gravenor
-      given-names: Michael B.
     - family-names: Funk
       given-names: Sebastian
+    - family-names: Gravenor
+      given-names: Michael B.
     - family-names: Frost
       given-names: Simon D. W.

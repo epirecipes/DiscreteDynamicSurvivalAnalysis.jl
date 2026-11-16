@@ -132,8 +132,10 @@ julia --project=docs --threads=10 scripts/reproduce_manuscript.jl
 
 ## Citation
 
-The methods are described in *Discrete dynamic survival analysis of epidemic case line lists*
-(manuscript in preparation). The code used for the manuscript's analyses is [archived on Zenodo](https://doi.org/10.5281/zenodo.23924833).
+> Montes-Olivas S, Abbott S, Funk S, Gravenor MB, Frost SDW. Discrete dynamic survival analysis of
+> epidemic case line lists. *medRxiv* (2026). [doi:10.64898/2026.11.10.26367756](https://doi.org/10.64898/2026.11.10.26367756)
+
+The code used for the manuscript's analyses is [archived on Zenodo](https://doi.org/10.5281/zenodo.23924833).
 The vignettes in `docs/src/vignettes/` reproduce those analyses with this package.
 
 ## Data

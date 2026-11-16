@@ -17,17 +17,17 @@ threads = 10
 [ebola_drc]
 julia = "1.11.6"
 package_version = "0.1.0"
-rendered = "2026-11-02T22:50:03"
-seconds = 47.5
-source_sha256 = "115eeb5985ea27591ff4c5bef70fe22bbe90a01194fd6b78e2cb2d6fd59f1407"
+rendered = "2026-11-16T10:28:36"
+seconds = 47.2
+source_sha256 = "5cfcfcb4d5b901b0efb6b1e4510760ac7c0c2cfe311da7fdb81379d09303fa2b"
 threads = 10
 
 [h1n1_wsu]
 julia = "1.11.6"
 package_version = "0.1.0"
-rendered = "2026-11-02T22:49:16"
-seconds = 18.9
-source_sha256 = "7b8b0e53ec8096deddfbbeb9a27275cd36de78729ffebc44eb32e5df427d6632"
+rendered = "2026-11-16T10:27:48"
+seconds = 37.4
+source_sha256 = "310ba81e9028a91aee9f8c63558fdeda14e81b085c4e89242da84bb5a916b4ef"
 threads = 10
 
 [measles_hagelloch]

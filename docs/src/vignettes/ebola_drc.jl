@@ -2,7 +2,8 @@
 #
 # This vignette fits the three waves of the 2018–2020 Ebola virus disease (EVD) epidemic in
 # the Democratic Republic of the Congo, as in the manuscript. The same data were analysed with
-# continuous-time DSA by Vossler et al. (2022), whose estimates are the point of comparison.
+# continuous-time DSA by [Vossler et al. (2022)](https://doi.org/10.1038/s41598-022-09564-4), whose
+# estimates are the point of comparison.
 #
 # **The question.** For each wave, what are the transmission rate `β`, the removal rate `γ`, the
 # initially infected fraction `ρ` and the size `N` of the population at risk, when case records 

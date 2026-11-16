@@ -9,7 +9,8 @@ EditURL = "h1n1_wsu.jl"
     displayed without being re-evaluated. To rerun it, see [Reproducibility](../reproducibility.md).
 
 This vignette fits the 2009 H1N1 influenza outbreak at Washington State University (WSU).
-The same data were analysed with continuous-time DSA by KhudaBukhsh et al. (2020), who introduced
+The same data were analysed with continuous-time DSA by
+[KhudaBukhsh et al. (2020)](https://doi.org/10.1098/rsfs.2019.0048), who introduced
 the concept of Survival Dynamical Systems (SDS), and whose estimates are the point of comparison.
 
 **The question.** Given the infection times and recovery intervals of several cases in a closed
@@ -238,6 +239,6 @@ plot(histogram(d.N; normalize = :pdf, bins = 40, label = "", xlabel = "N"),
 ````
 
 ````
-(settings = "manuscript (4 chains × 2,000 draws, 1,000 adaptation steps)", threads = 10, sampling_seconds = 14.8, total_seconds = 18.5)
+(settings = "manuscript (4 chains × 2,000 draws, 1,000 adaptation steps)", threads = 10, sampling_seconds = 20.8, total_seconds = 29.9)
 ````
 

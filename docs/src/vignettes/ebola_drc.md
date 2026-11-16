@@ -10,7 +10,8 @@ EditURL = "ebola_drc.jl"
 
 This vignette fits the three waves of the 2018–2020 Ebola virus disease (EVD) epidemic in
 the Democratic Republic of the Congo, as in the manuscript. The same data were analysed with
-continuous-time DSA by Vossler et al. (2022), whose estimates are the point of comparison.
+continuous-time DSA by [Vossler et al. (2022)](https://doi.org/10.1038/s41598-022-09564-4), whose
+estimates are the point of comparison.
 
 **The question.** For each wave, what are the transmission rate `β`, the removal rate `γ`, the
 initially infected fraction `ρ` and the size `N` of the population at risk, when case records
@@ -233,7 +234,7 @@ DataFrame(wave = collect(WAVES), sampling_seconds = [round(seconds[w]; digits = 
 ````
 
 ```@raw html
-<div><div style = "float: left;"><span>3×2 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">wave</th><th style = "text-align: left;">sampling_seconds</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">1</td><td style = "text-align: right;">28.3</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">2</td><td style = "text-align: right;">8.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">3</td><td style = "text-align: right;">9.6</td></tr></tbody></table></div>
+<div><div style = "float: left;"><span>3×2 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">wave</th><th style = "text-align: left;">sampling_seconds</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">1</td><td style = "text-align: right;">28.3</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">2</td><td style = "text-align: right;">7.7</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">3</td><td style = "text-align: right;">9.2</td></tr></tbody></table></div>
 ```
 
 ````julia
@@ -243,6 +244,6 @@ DataFrame(wave = collect(WAVES), sampling_seconds = [round(seconds[w]; digits = 
 ````
 
 ````
-(settings = "manuscript (4 chains × 2,000 draws, 1,000 adaptation steps; waves 1–3)", threads = 10, total_seconds = 47.4)
+(settings = "manuscript (4 chains × 2,000 draws, 1,000 adaptation steps; waves 1–3)", threads = 10, total_seconds = 46.9)
 ````
 

@@ -1,7 +1,8 @@
 # # H1N1 influenza at Washington State University (2009)
 #
 # This vignette fits the 2009 H1N1 influenza outbreak at Washington State University (WSU).
-# The same data were analysed with continuous-time DSA by KhudaBukhsh et al. (2020), who introduced
+# The same data were analysed with continuous-time DSA by
+# [KhudaBukhsh et al. (2020)](https://doi.org/10.1098/rsfs.2019.0048), who introduced
 # the concept of Survival Dynamical Systems (SDS), and whose estimates are the point of comparison.
 #
 # **The question.** Given the infection times and recovery intervals of several cases in a closed 
