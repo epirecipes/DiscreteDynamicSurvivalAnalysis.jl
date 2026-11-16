@@ -2,6 +2,7 @@
 
 [![Docs (dev)](https://img.shields.io/badge/docs-dev-blue.svg)](https://epirecip.es/DiscreteDynamicSurvivalAnalysis.jl/dev/)
 [![CI](https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/epirecipes/DiscreteDynamicSurvivalAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![medRxiv](https://img.shields.io/badge/medRxiv-10.64898%2F2026.11.10.26367756-blue)](https://doi.org/10.64898/2026.11.10.26367756)
 
 *Fit SIR models to case line lists, in discrete time.*
 
