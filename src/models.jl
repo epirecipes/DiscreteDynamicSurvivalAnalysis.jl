@@ -205,7 +205,8 @@ end
 
 """
 Log-likelihood for `r` stages given (β, IP value, ρ); returns `(loglik, τ)`. Infeasible values
-(`r` above an uncensored recovery interval, `p ∉ (0, 1)`, non-finite map output) return `-Inf`.
+(`r` above an uncensored recovery interval, `p ∉ (0, 1)`, `ρ ∉ [0, 1)`, non-finite map output)
+return `-Inf`.
 """
 function _loglik_r(spec::DDSAModel, data::LineList, pop, r, β, ipvalue, ρ)
     ip = spec.infectious_period
@@ -221,6 +222,8 @@ function _loglik_r(spec::DDSAModel, data::LineList, pop, r, β, ipvalue, ρ)
     if !_needs_map(spec)
         return (recovery_loglik(d, data.recovery_intervals, data.censored) + zero(NaNτ), NaNτ)
     end
+    # a sampler proposal can round ρ to 1 (logit(ρ) ≳ 37); forward_map rejects it, so return -Inf here
+    0 ≤ ρ < 1 || return (oftype(NaNτ, -Inf), NaNτ)
     sol = forward_map(_structure(ip, r, p, d), β, ρ, data.nsteps; Δt = data.Δt)
     (isfinite(sol.τ) && all(isfinite, sol.f)) || return (oftype(NaNτ, -Inf), NaNτ)
     res = ddsa_loglikelihood(sol, data, d; population = pop, guards = spec.guards, terms = spec.terms)
