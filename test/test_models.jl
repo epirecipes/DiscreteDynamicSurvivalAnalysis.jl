@@ -79,6 +79,14 @@ end
     @test length(ret.lps) == 3 && length(ret.τ) == 3
     @test ret.lps[3] == -Inf                         # r = 3 exceeds the shortest interval (2)
     @test isfinite(logjoint(m, (β = 0.8, ρ = 0.02, p = 0.5)))
+    # ρ = 1 (a logit-scale proposal that rounds to 1) is infeasible, not an error
+    @test inv(1 + exp(-37.0)) == 1.0
+    @test all(==(-Inf), returned(m, (β = 0.8, ρ = 1.0, p = 0.5)).lps)
+    @test loglikelihood(m, (β = 0.8, ρ = 1.0, p = 0.5)) == -Inf
+    @test loglikelihood(m, (β = 0.8, ρ = nextfloat(1.0), p = 0.5)) == -Inf
+    mgeo = turing_model(DDSAModel(infectious_period = GeometricIP(), priors = prA, population = 20), data)
+    @test loglikelihood(mgeo, (β = 0.8, ρ = 1.0, p = 0.5)) == -Inf
+    @test_throws ArgumentError forward_map(GLCT(dph_geometric(0.5)), 0.8, 1.0, 8)
     # a censored interval shorter than r only says W > δ, so it does not rule r out
     cdata = LineList([1, 3, 6, 4, 2, 0, 0, 0]; recovery_intervals = [3, 4, 4, 5, 1], censored = [false, false, false, false, true],
                      final_size = 16)
